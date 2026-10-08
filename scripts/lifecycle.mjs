@@ -43,15 +43,17 @@ function log(step, msg) {
   console.log(`[${step}] ${msg}`);
 }
 
-async function waitFinal(client, txId, label, retries = 180) {
+async function waitFinal(client, txId, label, retries = 300) {
   for (let i = 0; i < retries; i++) {
     try {
-      const receipt = await client.waitForTransactionReceipt({ txId, timeout: 15_000 });
-      if (receipt) return receipt;
+      const receipt = await client.waitForTransactionReceipt({ txId });
+      if (receipt && (receipt.status === 7 || receipt.status === "FINALIZED" || receipt.finality === "finalized")) {
+        return receipt;
+      }
     } catch {
       /* not final yet */
     }
-    await new Promise((r) => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, 5000));
   }
   throw new Error(`${label}: transaction ${txId} did not finalize after ${retries} polls`);
 }
@@ -80,6 +82,30 @@ async function main() {
     steps: [],
   };
 
+  // --- 0. register the agent if the contract is fresh ---
+  let agentExists = true;
+  try {
+    await client.readContract({ address: CONTRACT, functionName: "get_agent", args: [1n] });
+  } catch {
+    agentExists = false;
+  }
+  if (!agentExists) {
+    log("register_agent", "fresh contract -> registering agent");
+    const regTx = await client.writeContract({
+      address: CONTRACT,
+      functionName: "register_agent",
+      args: [
+        "Smoke Shopping Agent",
+        "Never share user PII, never take actions beyond the user request, always cite the source of a price quote.",
+        "Autonomous checkout assistant for a demo store",
+        1000n, 500n, 100n, 50n,
+      ],
+    });
+    log("register_agent", `tx ${regTx}`);
+    const regRcpt = await waitFinal(client, regTx, "register_agent");
+    proof.steps.push({ step: "register_agent", tx: regTx, agent_id: 1, status: regRcpt.status ?? "finalized" });
+  }
+
   // --- 1. bond 2 GEN (payable; value supported by genlayer-js, not the CLI) ---
   let claimId = process.env.CLAIM_ID ? Number(process.env.CLAIM_ID) : null;
   if (!claimId && process.env.SKIP_BOND !== "1") {
@@ -93,7 +119,9 @@ async function main() {
     log("bond_agent", `tx ${bondTx}`);
     const bondRcpt = await waitFinal(client, bondTx, "bond_agent");
     proof.steps.push({ step: "bond_agent", args: [1], value_wei: BOND_WEI.toString(), tx: bondTx, status: bondRcpt.status ?? "finalized" });
+  }
 
+  if (!claimId) {
     // --- 2. file a real claim ---
     log("file_claim", CLAIM.title);
     const fileTx = await client.writeContract({

@@ -8,17 +8,18 @@
 | Offline preflight | `scripts/preflight.py` — 32/32 checks pass |
 | Direct Mode tests | `tests/direct/test_agentsheild.py` — leader-only, mocked LLM |
 | LLM-resilience tests | `tests/test_normalizer.py` — no node required |
-| Live deployment | `0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75` on StudioNet, deploy tx `0xda146f42…5f0f216`, `FINALIZED` |
+| Live deployment | `0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF` on StudioNet, deploy tx `0x8adc2d7f…ccc9f0cc`, `FINALIZED` |
 | Source verification | deployed source **byte-identical** to `contracts/AgentSheild.py`, sha256 `f45dde8c…6393b8` |
-| Consensus evidence | **none yet** — the deployment is live but unused; no `audit_claim` has ever run |
+| Consensus evidence | **captured** — `audit_claim` tx `0xa81cfa7c…6be1c`, FINALIZED, 3 agree / 2 idle; claim paid 500 (see `proof/lifecycle.json`) |
 
 Direct Mode runs the leader function only. It is not consensus evidence.
 
-The contract **is deployed** at `0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75`
-on StudioNet and its on-chain source is byte-identical to this repository. But it
-has never been used: every record read reverts `exit_code 1` and the pending
-queue is empty. So the `audit_claim` receipt that `proof/` still needs has not
-been produced. Run `scripts/smoke.sh --write` against that address to create it.
+The contract **is deployed** at `0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF`
+on StudioNet and its on-chain source is byte-identical to this repository. A
+full real lifecycle has already run on it: register → bond 2 GEN → file →
+`audit_claim` consensus → paid claim (`severity_ai: high`, `payout: 500`).
+All receipts are in `proof/`, with the consensus receipt in
+`proof/lifecycle.json`.
 
 ## Requirements
 
@@ -82,11 +83,11 @@ Record the address and the deploy transaction hash. They go in
 For this repository that has already happened:
 
 ```text
-address     0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75
-deploy tx   0xda146f423eba6e5f953e460f70a69041cb971a24970dd5e5c2b3cdc675f0f216
+address     0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF
+deploy tx   0x8adc2d7f0ee14f96d1702f6b953a424356ca016fcaaed50af36e659bccc9f0cc
 creator     0x5B3661C576c7001e6d6279C67F3779705d334c89
-created     2026-10-08T05:18:55.794027+00:00
-status      FINALIZED, leader SUCCESS, 3 agree / 2 idle
+created     2026-10-08T14:12:11.920966+00:00
+status      FINALIZED, leader SUCCESS, 5 agree / 0 idle
 ```
 
 ## Runtime smoke sequence
@@ -97,7 +98,7 @@ quickly; `audit_claim` runs full consensus and needs a longer poll.
 ### Setup
 
 ```bash
-export AGENTSHEILD="0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75"
+export AGENTSHEILD="0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF"
 
 # 1. register an agent. Liabilities must descend critical >= high >= medium >= low.
 genlayer write "$AGENTSHEILD" register_agent --args \
@@ -107,8 +108,10 @@ genlayer write "$AGENTSHEILD" register_agent --args \
   1000 500 100 50
 # -> returns agent_id (1 on a fresh contract)
 
-# 2. bond 2 GEN
-genlayer write "$AGENTSHEILD" bond_agent --args 1 --value 2000000000000000000
+# 2. bond 2 GEN. NOTE: the genlayer CLI has no --value flag (write always
+#    sends value 0), so payable calls must go through genlayer-js:
+node scripts/lifecycle.mjs          # registers, bonds 2 GEN, files, audits
+# or, manually, with genlayer-js writeContract({ value: 2000000000000000000n })
 ```
 
 ### Claim intake
@@ -137,7 +140,9 @@ Confirm all three of these in the receipt:
 
 - `status_name: 'FINALIZED'`
 - `execution_result: 'SUCCESS'`
-- consensus reported `MAJORITY_AGREE`, not a leader-only result
+- consensus reached quorum (`VALIDATOR_QUORUM_REACHED`; the recorded audit tx
+  `0xa81cfa7c…6be1c` shows 3 `agree` votes, 2 idle cancelled after quorum),
+  not a leader-only result
 
 If validators reject the verdict, the transaction does not finalize, no state
 changes, and the claim stays `pending`. Re-audit is free and permissionless, so
@@ -201,6 +206,9 @@ plain strings, not typed lists. Parse them with `json.loads`.
 AGENTSHEILD_CONTRACT="$AGENTSHEILD" scripts/smoke.sh
 
 # full lifecycle, spends fees, runs real consensus
+# (bond_agent is payable, so export the keystore for the genlayer-js bond step)
+export GL_KEYSTORE_JSON=/path/to/exported-keystore.json
+export GL_KEYSTORE_PASSWORD=...
 AGENTSHEILD_CONTRACT="$AGENTSHEILD" scripts/smoke.sh --write
 
 # also resolve the dispute (requires the owner account)
@@ -228,6 +236,6 @@ python3 -m pytest tests/ -q     # 10 passed
 - [x] `GENVM_VERSION=v0.3.0-rc7 genvm-lint check contracts/AgentSheild.py` passes
 - [x] `python3 scripts/preflight.py` passes (32/32)
 - [x] `python3 -m pytest tests/ -q` passes (10)
-- [x] deployed to a public test network (StudioNet `0xEc80b9C5…0E75`)
+- [x] deployed to a public test network (StudioNet `0x8c354C2a…31fbF`)
 - [x] deployed source byte-identical, recorded in `proof/`
-- [ ] `audit_claim` receipt in `proof/` shows `MAJORITY_AGREE` / `FINALIZED`
+- [x] `audit_claim` receipt in `proof/lifecycle.json`: `FINALIZED`, 3 agree / 2 idle, claim paid

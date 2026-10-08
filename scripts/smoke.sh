@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # Official StudioNet deployment (override to target another address).
-AGENTSHEILD_CONTRACT="${AGENTSHEILD_CONTRACT:-0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75}"
+AGENTSHEILD_CONTRACT="${AGENTSHEILD_CONTRACT:-0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF}"
 AGENT_ID="${AGENT_ID:-1}"
 CLAIM_ID="${CLAIM_ID:-${CID:-1}}"
 DISPUTE_ID="${DISPUTE_ID:-}"
@@ -49,7 +49,7 @@ usage() {
     "  scripts/smoke.sh --help          show this help" \
     "" \
     "Environment:" \
-    "  AGENTSHEILD_CONTRACT  deployed contract address (default: official StudioNet 0xEc80b9C5…0E75)" \
+    "  AGENTSHEILD_CONTRACT  deployed contract address (default: official StudioNet 0x8c354C2a…31fbF)" \
     "  AGENT_ID          agent to read in read mode (default: 1)" \
     "  CLAIM_ID           claim to read in read mode (default: 1)" \
     "  DISPUTE_ID          dispute to read in read mode; write mode sets it from" \
@@ -59,6 +59,7 @@ usage() {
     "  INTERVAL            receipt polling interval in milliseconds (default: 3000)" \
     "  AUDIT_RETRIES      receipt attempts for consensus methods (default: 180)" \
     "  SMOKE_ACCOUNT       active unlocked account name (default: rabby)" \
+    "  GL_KEYSTORE_JSON / GL_KEYSTORE_PASSWORD   exported keystore for the payable bond step" \
     "  ARBITRATE           1 to also resolve the dispute; requires the owner account" \
     "" \
     "Write mode registers an agent, bonds it, files a claim, runs real consensus" \
@@ -194,7 +195,8 @@ run_write_lifecycle() {
   printf '  agent: %s\n' "$AGENT_ID"
 
   # 2. deterministic + payable: bond the GEN the agent is willing to lose.
-  write_and_wait bond_agent --args "$AGENT_ID" --value "$FUND_VALUE"
+  #    The genlayer CLI has no --value flag, so the payable call goes via genlayer-js.
+  node "$(dirname "${BASH_SOURCE[0]}")/bond.mjs" "$AGENTSHEILD_CONTRACT" "$AGENT_ID" "$FUND_VALUE"
   printf '  bonded: %s wei\n' "$FUND_VALUE"
 
   # 3. deterministic: intake. No LLM, so an operator cannot refuse a claim.
@@ -279,6 +281,8 @@ case "$MODE" in
     printf 'network: %s\n' "$network"
     printf 'wallet: %s is active and unlocked; writes will spend network fees\n' "$SMOKE_ACCOUNT"
     printf 'note: the same account registers, files claims, and disputes, so the dispute check passes\n'
+    : "${GL_KEYSTORE_JSON:?Set GL_KEYSTORE_JSON (bond_agent is payable; the CLI has no --value flag)}"
+    : "${GL_KEYSTORE_PASSWORD:?Set GL_KEYSTORE_PASSWORD for GL_KEYSTORE_JSON}"
     run_write_lifecycle
     run_reads
     ;;

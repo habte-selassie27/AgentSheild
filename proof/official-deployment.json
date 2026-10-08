@@ -1,31 +1,29 @@
 {
-  "_comment": "Live GenLayer StudioNet deployment of this repository's source. Sanitized: no private keys, tokens, or machine-local configuration. Verifier validator addresses are public on-chain identities, not secrets.",
+  "_comment": "Live GenLayer StudioNet deployment of this repository's source. Sanitized: no private keys, tokens, or machine-local configuration. Validator addresses are public on-chain identities, not secrets.",
   "network": "studionet (GenLayer Studio Network)",
-  "contract_address": "0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
-  "studio_url": "https://studio.genlayer.com/?import-contract=0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
-  "explorer_url": "https://explorer-studio.genlayer.com/address/0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
-  "deployment_tx_hash": "0xda146f423eba6e5f953e460f70a69041cb971a24970dd5e5c2b3cdc675f0f216",
+  "contract_address": "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
+  "studio_url": "https://studio.genlayer.com/?import-contract=0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
+  "explorer_url": "https://explorer-studio.genlayer.com/address/0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
+  "deployment_tx_hash": "0x8adc2d7f0ee14f96d1702f6b953a424356ca016fcaaed50af36e659bccc9f0cc",
   "creator_address": "0x5B3661C576c7001e6d6279C67F3779705d334c89",
-  "creation_timestamp": "2026-10-08T05:18:55.794027+00:00",
+  "creation_timestamp": "2026-10-08T14:12:11.920966+00:00",
   "receipt": {
     "status_name": "FINALIZED",
     "status_code": 7,
     "result_code": 6,
     "leader_execution_result": "SUCCESS",
     "consensus_votes": {
-      "agree": 3,
-      "idle": 2
+      "agree": 5,
+      "idle": 0
     },
-    "note": "Two of five StudioNet validators were idle and cast no vote. Finalization required 3 agreements, which were reached. Leader and all 3 agreeing validators returned execution_result SUCCESS.",
+    "note": "All five StudioNet validators agreed. Leader and every agreeing validator returned execution_result SUCCESS.",
     "validator_addresses": {
       "agree": [
-        "0x3D83ab507785b95ca5C208bEc80CCe3D5ca98100",
-        "0x772ffCd1dF6Cc566eC4b8d3f4F4f8eBbb6B36C84",
-        "0xE6BD8050758CB15fC88387223E31Ae2708B119dC"
-      ],
-      "idle": [
-        "0x4EDbE1FC9EAeC7b0EBA849b0C76AE73Eb0ad5C47",
-        "0xBBb165E4c9d73a1493D363280f7067Cd07891dBE"
+        "0x36728d2a123aB444E603EE5b2ad17d18Bb193557",
+        "0x3E5ee2507cc167C9925Bf10c67D7986581112024",
+        "0x4404Fb70d490c935758146f42A73DC850FF95C71",
+        "0xE6BD8050758CB15fC88387223E31Ae2708B119dC",
+        "0xec2Fb79cd12255Eb34886CEd7332f27B98DEe658"
       ]
     }
   },
@@ -57,5 +55,13 @@
       "update_liabilities"
     ]
   },
-  "state": "DEPLOYED BUT UNUSED - see empty-state-reads.json"
+  "state": "DEPLOYED AND EXERCISED - real register/bond/file/audit lifecycle completed; see lifecycle.json",
+  "superseded_deployments": [
+    {
+      "contract_address": "0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
+      "deployment_tx_hash": "0xda146f423eba6e5f953e460f70a69041cb971a24970dd5e5c2b3cdc675f0f216",
+      "creation_timestamp": "2026-10-08T05:18:55.794027+00:00",
+      "note": "Earlier deployment of the same byte-identical source; superseded by the manual Studio deployment above."
+    }
+  ]
 }

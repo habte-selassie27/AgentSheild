@@ -20,12 +20,13 @@
  *     node scripts/lifecycle.mjs
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Wallet } from "ethers";
 import { createClient, createAccount, chains } from "genlayer-js";
 
-const CONTRACT = process.env.AGENTSHEILD || "0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75";
+const CONTRACT = process.env.AGENTSHEILD || "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BOND_WEI = 2n * 10n ** 18n;
 
@@ -43,19 +44,17 @@ function log(step, msg) {
   console.log(`[${step}] ${msg}`);
 }
 
-async function waitFinal(client, txId, label, retries = 300) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const receipt = await client.waitForTransactionReceipt({ txId });
-      if (receipt && (receipt.status === 7 || receipt.status === "FINALIZED" || receipt.finality === "finalized")) {
-        return receipt;
-      }
-    } catch {
-      /* not final yet */
-    }
-    await new Promise((r) => setTimeout(r, 5000));
+async function waitFinal(client, txId, label, retries = 180) {
+  // Poll with the CLI receipt command (blocking until FINALIZED/SUCCESS).
+  try {
+    execSync(
+      `genlayer receipt ${txId} --status FINALIZED --retries ${retries} --interval 4000 | grep -q "execution_result: 'SUCCESS'"`,
+      { stdio: ["ignore", "pipe", "inherit"], timeout: retries * 6 * 1000 },
+    );
+    return { tx: txId, status: "FINALIZED", execution_result: "SUCCESS" };
+  } catch (e) {
+    throw new Error(`${label}: transaction did not finalize with SUCCESS: ${txId}`);
   }
-  throw new Error(`${label}: transaction ${txId} did not finalize after ${retries} polls`);
 }
 
 async function main() {

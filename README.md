@@ -25,25 +25,28 @@ GENVM_VERSION=v0.3.0-rc7 genvm-lint check contracts/AgentSheild.py   # lint + va
 
 | Role | Address | Deploy tx | Consensus on deploy |
 |---|---|---|---|
-| **Official** | [`0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75`](https://explorer-studio.genlayer.com/address/0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75) | `0xda146f42…5f0f216` | 3 agree / 2 idle (FINALIZED) |
+| **Official** | [`0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF`](https://explorer-studio.genlayer.com/address/0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF) | `0x8adc2d7f…ccc9f0cc` | 5 agree / 0 idle (FINALIZED) |
 
 Open it in Studio with
-[`?import-contract=`](https://studio.genlayer.com/?import-contract=0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75).
+[`?import-contract=`](https://studio.genlayer.com/?import-contract=0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF).
 The deployment runs source that is **byte-identical** to this repo's contract
 (sha256 `f45dde8c…6393b8`, 23470 bytes, 506 lines). Verify it yourself in one
 line:
 
 ```bash
 curl -s -X POST https://explorer-studio.genlayer.com/api -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":["0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75"]}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":["0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF"]}' \
 | python3 -c 'import json,sys,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["result"]))' \
 | cmp - contracts/AgentSheild.py && echo byte-identical
 ```
 
-Receipts, source verification, and empty-state reads live in
-[`proof/`](proof/). The deployment is live but unused so far: the first
-`audit_claim` consensus receipt has not been produced — run
-`scripts/smoke.sh --write` against the address to create it.
+Receipts, source verification, and the full lifecycle evidence live in
+[`proof/`](proof/). A complete **real** lifecycle has already run on the
+official contract — register → bond 2 GEN → file → `audit_claim` consensus
+(tx [`0xa81cfa7c…6be1c`](https://explorer-studio.genlayer.com/tx/0xa81cfa7cdd9c53759ebc85f9cb0509c2da465c5bde531120030740d3bb26be1c),
+3 agree / 2 idle, FINALIZED). The LLM judged the claim `high`, paid `500`
+from the bond, and wrote its reason on-chain; see
+[`proof/lifecycle.json`](proof/lifecycle.json).
 
 ## What it does
 
@@ -159,7 +162,7 @@ python3.12 -m pytest tests/ -q     # 10 passed (~0.2s)
 The contract is already deployed on StudioNet:
 
 ```bash
-export AGENTSHEILD=0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75
+export AGENTSHEILD=0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF
 ```
 
 To deploy elsewhere, and then run the lifecycle:
@@ -169,24 +172,27 @@ GENVM_VERSION=v0.3.0-rc7 genvm-lint check contracts/AgentSheild.py   # expect: l
 npm install -g genlayer
 genlayer network set studionet
 genlayer deploy --contract contracts/AgentSheild.py
-# bond (2 GEN), file, audit:
 export AGENTSHEILD=<deployed address>
-genlayer write "$AGENTSHEILD" bond_agent --args 1 --value 2000000000000000000
+# file + audit via the CLI (register first if fresh):
+genlayer write "$AGENTSHEILD" register_agent --args "Smoke Shopping Agent" "<policy>" "<desc>" 1000 500 100 50
 genlayer write "$AGENTSHEILD" file_claim --args 1 "Agent leaked my email" "..." "..." "PII exposure" high
 genlayer write "$AGENTSHEILD" audit_claim --args 1
 genlayer call "$AGENTSHEILD" get_claim --args 1
+# bond_agent is payable: the genlayer CLI cannot send value (no --value flag),
+# so send it through genlayer-js (scripts/lifecycle.mjs does this for you).
 ```
 
-Or run the whole lifecycle, including the dispute path, in one command:
+Or run the whole lifecycle — register, bond 2 GEN, file, real `audit_claim`
+consensus — in one command (writes `proof/lifecycle.json`):
 
 ```bash
-AGENTSHEILD_CONTRACT=0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75 scripts/smoke.sh --write
+node scripts/lifecycle.mjs
 ```
 
 Read-only smoke (all 6 views, spends nothing):
 
 ```bash
-AGENTSHEILD_CONTRACT=0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75 scripts/smoke.sh
+AGENTSHEILD_CONTRACT=0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF scripts/smoke.sh
 ```
 
 Full annotated command sheet: [`DEPLOYMENT.md`](DEPLOYMENT.md).
@@ -196,9 +202,10 @@ Full annotated command sheet: [`DEPLOYMENT.md`](DEPLOYMENT.md).
 ```text
 contracts/AgentSheild.py   the primitive, 506 lines, single file
 DEPLOYMENT.md              annotated deploy + smoke command sheet
-proof/                     live receipts, byte-identity, empty-state reads
+proof/                     live receipts, byte-identity, real lifecycle evidence
 scripts/preflight.py       offline audit, no GenVM runtime required
 scripts/smoke.sh           CLI read + write lifecycle smoke sequence
+scripts/lifecycle.mjs      real StudioNet lifecycle (bond value via genlayer-js)
 tests/direct/              Direct Mode: leader-only, mocked LLM (6 tests)
 tests/test_normalizer.py   pure helpers vs adversarial LLM output (4 tests)
 docs/                      (planned) architecture, consensus, integration, threat model

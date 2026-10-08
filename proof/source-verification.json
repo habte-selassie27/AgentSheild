@@ -4,7 +4,7 @@
   "rpc_methods_used": [
     "gen_getContractCode"
   ],
-  "contract_address": "0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
+  "contract_address": "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
   "repository_file": "contracts/AgentSheild.py",
   "repository_sha256": "f45dde8c180931b25e0ce96d21882f6ee7c8c10f15d3d464f4d099316d2393b8",
   "deployed_sha256": "f45dde8c180931b25e0ce96d21882f6ee7c8c10f15d3d464f4d099316d2393b8",
@@ -15,7 +15,7 @@
   "verified_at": "2026-10-08",
   "reproduce": [
     "curl -s -X POST https://explorer-studio.genlayer.com/api -H 'content-type: application/json' \\",
-    "  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"gen_getContractCode\",\"params\":[\"0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75\"]}' \\",
+    "  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"gen_getContractCode\",\"params\":[\"0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF\"]}' \\",
     "  | python3 -c 'import json,sys,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)[\"result\"]))' \\",
     "  | cmp - contracts/AgentSheild.py && echo byte-identical"
   ]

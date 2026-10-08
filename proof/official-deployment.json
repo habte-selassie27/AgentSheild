@@ -1,0 +1,61 @@
+{
+  "_comment": "Live GenLayer StudioNet deployment of this repository's source. Sanitized: no private keys, tokens, or machine-local configuration. Verifier validator addresses are public on-chain identities, not secrets.",
+  "network": "studionet (GenLayer Studio Network)",
+  "contract_address": "0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
+  "studio_url": "https://studio.genlayer.com/?import-contract=0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
+  "explorer_url": "https://explorer-studio.genlayer.com/address/0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
+  "deployment_tx_hash": "0xda146f423eba6e5f953e460f70a69041cb971a24970dd5e5c2b3cdc675f0f216",
+  "creator_address": "0x5B3661C576c7001e6d6279C67F3779705d334c89",
+  "creation_timestamp": "2026-10-08T05:18:55.794027+00:00",
+  "receipt": {
+    "status_name": "FINALIZED",
+    "status_code": 7,
+    "result_code": 6,
+    "leader_execution_result": "SUCCESS",
+    "consensus_votes": {
+      "agree": 3,
+      "idle": 2
+    },
+    "note": "Two of five StudioNet validators were idle and cast no vote. Finalization required 3 agreements, which were reached. Leader and all 3 agreeing validators returned execution_result SUCCESS.",
+    "validator_addresses": {
+      "agree": [
+        "0x3D83ab507785b95ca5C208bEc80CCe3D5ca98100",
+        "0x772ffCd1dF6Cc566eC4b8d3f4F4f8eBbb6B36C84",
+        "0xE6BD8050758CB15fC88387223E31Ae2708B119dC"
+      ],
+      "idle": [
+        "0x4EDbE1FC9EAeC7b0EBA849b0C76AE73Eb0ad5C47",
+        "0xBBb165E4c9d73a1493D363280f7067Cd07891dBE"
+      ]
+    }
+  },
+  "abi": {
+    "methods_total": 20,
+    "views": 6,
+    "writes": 14,
+    "payable": 1,
+    "method_names": [
+      "audit_claim",
+      "bond_agent",
+      "claim_payout",
+      "delist_agent",
+      "file_claim",
+      "get_agent",
+      "get_agent_claims",
+      "get_agent_stats",
+      "get_claim",
+      "get_dispute",
+      "get_pending_queue",
+      "pause_agent",
+      "raise_dispute",
+      "register_agent",
+      "requeue_disputed",
+      "resolve_dispute",
+      "resume_agent",
+      "set_fee",
+      "transfer_ownership",
+      "update_liabilities"
+    ]
+  },
+  "state": "DEPLOYED BUT UNUSED - see empty-state-reads.json"
+}

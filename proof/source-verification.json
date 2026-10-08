@@ -1,0 +1,22 @@
+{
+  "_comment": "Deployed source retrieved via JSON-RPC gen_getContractCode (base64-encoded) and compared to the repository file byte for byte.",
+  "rpc_endpoint": "https://explorer-studio.genlayer.com/api",
+  "rpc_methods_used": [
+    "gen_getContractCode"
+  ],
+  "contract_address": "0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
+  "repository_file": "contracts/AgentSheild.py",
+  "repository_sha256": "f45dde8c180931b25e0ce96d21882f6ee7c8c10f15d3d464f4d099316d2393b8",
+  "deployed_sha256": "f45dde8c180931b25e0ce96d21882f6ee7c8c10f15d3d464f4d099316d2393b8",
+  "byte_identical": true,
+  "bytes": 23470,
+  "lines": 506,
+  "runner_pin": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6",
+  "verified_at": "2026-10-08",
+  "reproduce": [
+    "curl -s -X POST https://explorer-studio.genlayer.com/api -H 'content-type: application/json' \\",
+    "  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"gen_getContractCode\",\"params\":[\"0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75\"]}' \\",
+    "  | python3 -c 'import json,sys,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)[\"result\"]))' \\",
+    "  | cmp - contracts/AgentSheild.py && echo byte-identical"
+  ]
+}

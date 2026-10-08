@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AUDIT_REASONS_VALID, buildScenario, makeAudit } from './mock';
-import { NETWORK, sdk } from './sdk';
+import { NETWORK, sdk, shortAddr } from './sdk';
 import type {
   ActivityEvent, Agent, Claim, Dispute, Gen, Posture, Scenario, Severity, SystemStatus,
 } from './types';
@@ -91,6 +91,25 @@ export function ShieldProvider({ children }: { children: React.ReactNode }) {
   }, [autoRefresh]);
 
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
+
+  // Silent reconnect: pick up an already-authorized account (no popup).
+  useEffect(() => {
+    void sdk.getAccounts().then((accs) => {
+      if (accs?.length) setWallet(shortAddr(accs[0]));
+    });
+  }, []);
+
+  // Follow wallet account switches / disconnects from the extension.
+  useEffect(() => {
+    const eth = window.ethereum;
+    if (!eth?.on) return;
+    const onAccounts = (...args: never[]) => {
+      const accs = args[0] as unknown as string[] | undefined;
+      setWallet(accs?.length ? shortAddr(accs[0]) : null);
+    };
+    eth.on('accountsChanged', onAccounts);
+    return () => eth.removeListener?.('accountsChanged', onAccounts);
+  }, []);
 
   const push = useCallback((e: Omit<ActivityEvent, 'id' | 'time'>) => {
     setBase((b) => ({
@@ -333,8 +352,15 @@ export function ShieldProvider({ children }: { children: React.ReactNode }) {
     autoRefresh,
     setAutoRefresh,
     wallet,
-    connectWallet: () => { void sdk.connectWallet().then(setWallet); },
-    disconnectWallet: () => setWallet(null),
+    connectWallet: () => {
+      void sdk
+        .connectWallet()
+        .then(setWallet)
+        .catch((e) => console.warn('[wallet] connection failed or rejected:', e));
+    },
+    disconnectWallet: () => {
+      void sdk.disconnectWallet().finally(() => setWallet(null));
+    },
     auditing,
     auditStep,
     auditClaimId,

@@ -12,6 +12,24 @@ import type { ActivityEvent, Agent, Claim, Dispute, Gen, Scenario, Severity } fr
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+export const DEMO_ADDRESS = '0x7C4b…9A21';
+
+export function shortAddr(addr: string): string {
+  return addr.length > 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+}
+
+export interface Eip1193Provider {
+  request(args: { method: string; params?: unknown[] | object }): Promise<unknown>;
+  on?(event: string, handler: (...args: never[]) => void): void;
+  removeListener?(event: string, handler: (...args: never[]) => void): void;
+}
+
+declare global {
+  interface Window {
+    ethereum?: Eip1193Provider;
+  }
+}
+
 export interface NetworkInfo {
   chain: 'GenLayer Studionet';
   chainId: number;
@@ -66,13 +84,44 @@ export const sdk = {
     return buildScenario(scenario);
   },
 
+  /** Silently read already-authorized accounts (no popup). */
+  async getAccounts(): Promise<string[]> {
+    const eth = window.ethereum;
+    if (!eth) return [];
+    try {
+      return (await eth.request({ method: 'eth_accounts' })) as string[];
+    } catch {
+      return [];
+    }
+  },
+
+  /**
+   * Connect a real injected wallet (Rabby / MetaMask / …) — opens the
+   * extension popup via eth_requestAccounts. Falls back to a demo address
+   * when no wallet extension is installed.
+   */
   async connectWallet(): Promise<string> {
-    await delay(300);
-    return '0x7C4b…9A21';
+    const eth = window.ethereum;
+    if (!eth) {
+      await delay(300);
+      return DEMO_ADDRESS;
+    }
+    const accounts = (await eth.request({ method: 'eth_requestAccounts' })) as string[];
+    if (!accounts?.length) throw new Error('No account returned by wallet');
+    return shortAddr(accounts[0]);
   },
 
   async disconnectWallet(): Promise<void> {
-    await delay(120);
+    const eth = window.ethereum;
+    if (!eth) return;
+    try {
+      await eth.request({
+        method: 'wallet_revokePermissions',
+        params: [{ eth_accounts: {} }],
+      });
+    } catch {
+      /* wallets that can't revoke just forget locally */
+    }
   },
 
   /* ---- writes (deterministic, staged locally) ---- */

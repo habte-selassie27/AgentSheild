@@ -1,40 +1,47 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AUDIT_REASONS_VALID, buildScenario, makeAudit } from './mock';
-import { NETWORK, sdk, shortAddr } from './sdk';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { NETWORK, explorerTx } from './genlayer';
+import { sdk, type Registry, shortAddr } from './sdk';
 import type {
-  ActivityEvent, Agent, Claim, Dispute, Gen, Posture, Scenario, Severity, SystemStatus,
+  ActivityEvent, Agent, AgentStatus, Claim, Decision, Dispute, Gen, Posture, Severity, SystemStatus,
 } from './types';
-import { GEN, SEVERITY_INDEX, feeOf, netOf } from './types';
+import { SEVERITY_INDEX, formatGen } from './types';
 
 export const AUDIT_STEPS = [
-  'Copy Agent + Claim into memory',
+  'Snapshot agent + claim into validator memory',
   'Build bounded dedup context (last 60 claims)',
-  'Validators re-run the audit prompt',
+  'Each validator re-runs the identical audit prompt',
   'prompt_comparative consensus · decision · tier · reward',
-  'Deterministic settlement & auto-pay',
+  'Deterministic settlement & auto-pay from the bond',
 ];
 
 interface ShieldState {
-  scenario: Scenario;
-  setScenario(s: Scenario): void;
-  simulate(s: Scenario): void;
-
-  status: SystemStatus;
-  posture: Posture;
-  headline: string;
-  headlineDetail: string;
+  loading: boolean;
+  error: string | null;
+  notice: string | null;
+  lastTx: string | null;
+  clearNotice(): void;
 
   agents: Agent[];
   claims: Claim[];
   disputes: Dispute[];
   activity: ActivityEvent[];
-  loading: boolean;
+
+  status: SystemStatus;
+  posture: Posture;
+  headline: string;
+  headlineDetail: string;
+  pending: Claim[];
+  openDisputes: Dispute[];
+  totalBond: Gen;
 
   lastCheckSec: number;
   autoRefresh: boolean;
   setAutoRefresh(v: boolean): void;
+  refresh(): void;
 
-  wallet: string | null;
+  account: string | null;
+  walletLabel: string | null;
+  connecting: boolean;
   connectWallet(): void;
   disconnectWallet(): void;
 
@@ -44,44 +51,104 @@ interface ShieldState {
   runAudit(claimId: number): void;
 
   bondAgent(agentId: number, amount: Gen): void;
-  cycleAgentStatus(agentId: number): void;
-  fileClaim(input: { agentId: number; title: string; description: string; evidence: string; impact: string; severity: Severity }): void;
+  setAgentStatus(agentId: number, status: AgentStatus): void;
+  fileClaim(input: {
+    agentId: number; title: string; description: string; evidence: string; impact: string; severity: Severity;
+  }): void;
   claimPayout(claimId: number): void;
-  raiseDisputeLocal(claimId: number, reason: string): void;
-  resolveDisputeLocal(disputeId: number, outcome: 'upheld' | 'overturned', severity: Severity): void;
-
-  refresh(): void;
+  raiseDispute(claimId: number, reason: string): void;
+  resolveDispute(disputeId: number, outcome: Decision, severity: Severity): void;
+  requeueDisputed(claimId: number): void;
 }
 
 const Ctx = createContext<ShieldState | null>(null);
 export const useShield = () => useContext(Ctx)!;
 
-function clock(): string {
-  return new Date().toISOString().slice(11, 19);
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function deriveActivity(claims: Claim[], disputes: Dispute[]): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
+  for (const c of claims) {
+    const base = { id: `cl-${c.id}`, kind: 'Claims' as const };
+    if (c.status === 'pending') {
+      events.push({ ...base, title: `Claim #${c.id} filed`, detail: `${c.agentName} · ${c.severityClaimed} claimed · awaiting audit`, severity: 'INFO' });
+    } else if (c.status === 'paid') {
+      events.push({ id: `cl-${c.id}`, title: `Claim #${c.id} paid`, detail: `${formatGen(c.payout)} GEN paid from ${c.agentName} bond`, severity: 'HIGH', kind: 'Payout' });
+    } else if (c.status === 'valid') {
+      events.push({ id: `cl-${c.id}`, title: `Claim #${c.id} audited valid`, detail: `${c.severityAi ?? c.severityClaimed} · ${formatGen(c.payout)} GEN claimable`, severity: 'MEDIUM', kind: 'Consensus' });
+    } else if (c.status === 'invalid') {
+      events.push({ id: `cl-${c.id}`, title: `Claim #${c.id} audited invalid`, detail: c.auditReason ?? 'no payout', severity: 'INFO', kind: 'Consensus' });
+    } else if (c.status === 'duplicate') {
+      events.push({ id: `cl-${c.id}`, title: `Claim #${c.id} closed as duplicate`, detail: `duplicate_of = #${c.duplicateOf}`, severity: 'INFO', kind: 'Consensus' });
+    } else if (c.status === 'disputed') {
+      events.push({ id: `cl-${c.id}`, title: `Claim #${c.id} disputed`, detail: c.auditReason ?? 'payout frozen for arbitration', severity: 'MEDIUM', kind: 'Disputes' });
+    }
+  }
+  for (const d of disputes) {
+    events.push({
+      id: `dsp-${d.id}`,
+      title: `Dispute #${d.id} ${d.resolved ? `resolved ${d.outcome}` : 'open'}`,
+      detail: `Claim #${d.claimId} · ${d.reason}`,
+      severity: d.resolved ? 'INFO' : 'MEDIUM',
+      kind: 'Disputes',
+    });
+  }
+  return events;
 }
 
 export function ShieldProvider({ children }: { children: React.ReactNode }) {
-  const [scenario, setScenarioState] = useState<Scenario>('queue');
-  const [base, setBase] = useState(() => buildScenario('queue'));
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastCheckSec, setLastCheckSec] = useState(4);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [lastTx, setLastTx] = useState<string | null>(null);
+  const [lastCheckSec, setLastCheckSec] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [wallet, setWallet] = useState<string | null>(null);
+  const [account, setAccount] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const [auditing, setAuditing] = useState(false);
   const [auditStep, setAuditStep] = useState(0);
   const [auditClaimId, setAuditClaimId] = useState<number | null>(null);
   const timers = useRef<number[]>([]);
 
-  // Initial dataset load through the SDK stubs.
+  const load = useCallback(async (silent: boolean): Promise<Registry | null> => {
+    if (!silent) setLoading(true);
+    try {
+      const r = await sdk.loadRegistry();
+      setAgents(r.agents);
+      setClaims(r.claims);
+      setDisputes(r.disputes);
+      setError(null);
+      setLastCheckSec(0);
+      return r;
+    } catch (e) {
+      if (!silent) setError(e instanceof Error ? e.message : String(e));
+      return null;
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
+
+  // Initial load.
+  useEffect(() => { void load(false); }, [load]);
+
+  // Silent reconnect to an already-authorized wallet.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const s = await sdk.getScenario('queue');
-      if (cancelled) return;
-      setBase(s);
-      setLoading(false);
-    })();
-    return () => { cancelled = true; };
+    void sdk.getAccounts().then((accs) => { if (accs?.length) setAccount(accs[0]); });
+  }, []);
+
+  // Follow wallet account switches.
+  useEffect(() => {
+    const eth = window.ethereum;
+    if (!eth?.on) return;
+    const onAccounts = (...args: never[]) => {
+      const accs = args[0] as unknown as string[] | undefined;
+      setAccount(accs?.length ? accs[0] : null);
+    };
+    eth.on('accountsChanged', onAccounts);
+    return () => eth.removeListener?.('accountsChanged', onAccounts);
   }, []);
 
   useEffect(() => {
@@ -92,299 +159,185 @@ export function ShieldProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
 
-  // Silent reconnect: pick up an already-authorized account (no popup).
-  useEffect(() => {
-    void sdk.getAccounts().then((accs) => {
-      if (accs?.length) setWallet(shortAddr(accs[0]));
-    });
-  }, []);
+  const refresh = useCallback(() => { void load(false); }, [load]);
 
-  // Follow wallet account switches / disconnects from the extension.
-  useEffect(() => {
-    const eth = window.ethereum;
-    if (!eth?.on) return;
-    const onAccounts = (...args: never[]) => {
-      const accs = args[0] as unknown as string[] | undefined;
-      setWallet(accs?.length ? shortAddr(accs[0]) : null);
-    };
-    eth.on('accountsChanged', onAccounts);
-    return () => eth.removeListener?.('accountsChanged', onAccounts);
-  }, []);
-
-  const push = useCallback((e: Omit<ActivityEvent, 'id' | 'time'>) => {
-    setBase((b) => ({
-      ...b,
-      activity: [{ ...e, id: Math.random().toString(36).slice(2), time: clock() }, ...b.activity].slice(0, 60),
-    }));
-  }, []);
-
-  const simulate = useCallback((s: Scenario) => {
-    timers.current.forEach((t) => window.clearTimeout(t));
-    timers.current = [];
-    setAuditing(false);
-    setAuditStep(0);
-    setAuditClaimId(null);
-    setScenarioState(s);
-    setBase(buildScenario(s));
-    setLastCheckSec(0);
-
-    if (s === 'settled') {
-      push({ title: 'State: settled', detail: 'Claim #7 shown post-settlement (50 GEN paid)', severity: 'INFO', kind: 'System' });
-    } else if (s === 'disputed') {
-      push({ title: 'State: disputed', detail: 'Dispute #2 open — arbitration pending', severity: 'MEDIUM', kind: 'Disputes' });
-    } else {
-      push({ title: 'State: audit queue', detail: '2 claims pending audit_claim()', severity: 'INFO', kind: 'System' });
+  const pollUntil = useCallback(async (done: (r: Registry) => boolean, timeoutMs: number): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await delay(4000);
+      const r = await load(true);
+      if (r && done(r)) return true;
     }
-  }, [push]);
+    return false;
+  }, [load]);
+
+  const requireAccount = useCallback((): string => {
+    if (!account) throw new Error('Connect a wallet first — writes are signed by the injected wallet.');
+    return account;
+  }, [account]);
+
+  /** Send a transaction, wait for the on-chain effect, then resync reads. */
+  const applyWrite = useCallback(async (
+    label: string,
+    send: (account: string) => Promise<string>,
+    done?: (r: Registry) => boolean,
+    timeoutMs = 90000,
+  ): Promise<boolean> => {
+    let acc: string;
+    try {
+      acc = requireAccount();
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+    try {
+      setNotice(`${label}: confirm in your wallet…`);
+      const hash = await send(acc);
+      setLastTx(hash);
+      setNotice(`${label}: submitted · ${hash.slice(0, 12)}… — waiting for consensus`);
+      const ok = done ? await pollUntil(done, timeoutMs) : false;
+      await load(true);
+      setNotice(
+        done
+          ? ok
+            ? `${label}: confirmed on-chain`
+            : `${label}: still processing — refresh in a moment`
+          : `${label}: submitted`,
+      );
+      return true;
+    } catch (e) {
+      setNotice(`${label} failed: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }, [load, pollUntil, requireAccount]);
 
   const runAudit = useCallback((claimId: number) => {
     if (auditing) return;
     setAuditing(true);
     setAuditStep(0);
     setAuditClaimId(claimId);
+    const tick = window.setInterval(() => {
+      setAuditStep((s) => (s >= AUDIT_STEPS.length - 1 ? s : s + 1));
+    }, 5000);
+    timers.current.push(tick);
 
-    AUDIT_STEPS.forEach((_, i) => {
-      timers.current.push(window.setTimeout(() => setAuditStep(i), i * 750));
-    });
-
-    const total = AUDIT_STEPS.length * 750 + 500;
-    timers.current.push(
-      window.setTimeout(() => {
-        setAuditing(false);
-        setAuditStep(AUDIT_STEPS.length);
-        setLastCheckSec(0);
-
-        setBase((b) => {
-          const claim = b.claims.find((c) => c.id === claimId);
-          if (!claim) return b;
-          const agent = b.agents.find((a) => a.id === claim.agentId);
-          if (!agent) return b;
-
-          const tier = claim.severityClaimed;
-          const reward = agent.liabilities[tier];
-          const underfunded = agent.bond < reward;
-          const paid = !underfunded && reward > 0n;
-          const decision = 'valid' as const;
-          const audit = makeAudit(claimId, decision, tier, reward, AUDIT_REASONS_VALID);
-
-          const claims = b.claims.map((c) =>
-            c.id === claimId
-              ? {
-                  ...c,
-                  severityAi: tier,
-                  status: paid ? ('paid' as const) : ('valid' as const),
-                  resolvedAt: clock() + ' UTC',
-                  auditReason: `Evidence matches the declared breach; ${tier} tier under agent #${agent.id} liability table.`,
-                  audit,
-                }
-              : c
-          );
-
-          const agents = paid
-            ? b.agents.map((a) => (a.id === agent.id ? { ...a, bond: a.bond - reward } : a))
-            : b.agents;
-
-          const ev: ActivityEvent[] = [
-            {
-              id: Math.random().toString(36).slice(2), time: clock(),
-              title: paid ? 'Auto-payout executed' : 'Valid claim queued for payout',
-              detail: paid
-                ? `Claim #${claimId} · ${reward / 10n ** 18n} GEN · claimant ${netOf(reward) / 10n ** 18n}, fee ${feeOf(reward) / 10n ** 18n}`
-                : `Claim #${claimId} · ${reward / 10n ** 18n} GEN claimable — bond underfunded`,
-              severity: 'HIGH', kind: 'Payout',
-            },
-            {
-              id: Math.random().toString(36).slice(2), time: clock(),
-              title: 'Audit consensus reached',
-              detail: `Claim #${claimId} · ${decision} · ${tier} · 5/5 identical reward`,
-              severity: 'HIGH', kind: 'Consensus',
-            },
-          ];
-
-          return {
-            ...b,
-            claims,
-            agents,
-            activity: [...ev, ...b.activity].slice(0, 60),
-            headline: paid ? 'PAYOUT EXECUTED' : 'AUDITED — VALID',
-            headlineDetail: paid
-              ? `Claim #${claimId} settled from the ${agent.name} bond: ${netOf(reward) / 10n ** 18n} GEN to the claimant, ${feeOf(reward) / 10n ** 18n} GEN protocol fee.`
-              : `Claim #${claimId} is valid but the bond cannot cover ${reward / 10n ** 18n} GEN — payout becomes claimable when the operator tops up.`,
-          };
-        });
-      }, total),
-    );
-  }, [auditing, push]);
+    void (async () => {
+      await applyWrite(
+        `audit_claim(${claimId})`,
+        (acc) => sdk.auditClaim(claimId, acc),
+        (r) => {
+          const c = r.claims.find((x) => x.id === claimId);
+          return !!c && c.status !== 'pending';
+        },
+        300000,
+      );
+      window.clearInterval(tick);
+      setAuditStep(AUDIT_STEPS.length);
+      setAuditing(false);
+    })();
+  }, [applyWrite, auditing]);
 
   const bondAgent = useCallback((agentId: number, amount: Gen) => {
-    void sdk.bondAgent(agentId, amount);
-    setBase((b) => ({
-      ...b,
-      agents: b.agents.map((a) => (a.id === agentId ? { ...a, bond: a.bond + amount } : a)),
-    }));
-    const a = base.agents.find((x) => x.id === agentId);
-    push({ title: 'Bond topped up', detail: `${a?.name ?? `Agent #${agentId}`} · +${amount / 10n ** 18n} GEN`, severity: 'INFO', kind: 'Registry' });
-  }, [base.agents, push]);
+    void applyWrite(
+      `bond_agent(#${agentId})`,
+      (acc) => sdk.bondAgent(agentId, amount, acc),
+      (r) => (r.agents.find((a) => a.id === agentId)?.bond ?? 0n) > 0n,
+    );
+  }, [applyWrite]);
 
-  const cycleAgentStatus = useCallback((agentId: number) => {
-    setBase((b) => ({
-      ...b,
-      agents: b.agents.map((a) => {
-        if (a.id !== agentId) return a;
-        const next: Agent['status'] = a.status === 'active' ? 'paused' : a.status === 'paused' ? 'delisted' : 'active';
-        void sdk.setAgentStatus(agentId, next);
-        push({ title: `Agent #${agentId} ${next}`, detail: `${a.name} · status → ${next}`, severity: next === 'delisted' ? 'MEDIUM' : 'INFO', kind: 'Registry' });
-        return { ...a, status: next };
-      }),
-    }));
-  }, [push]);
+  const setAgentStatus = useCallback((agentId: number, status: AgentStatus) => {
+    void applyWrite(
+      `${status}_agent(#${agentId})`,
+      (acc) => sdk.setAgentStatus(agentId, status, acc),
+      (r) => r.agents.find((a) => a.id === agentId)?.status === status,
+    );
+  }, [applyWrite]);
 
-  const fileClaim = useCallback((input: { agentId: number; title: string; description: string; evidence: string; impact: string; severity: Severity }) => {
-    void sdk.fileClaim(input.agentId, input.title);
-    const agent = base.agents.find((a) => a.id === input.agentId);
-    const cid = Math.max(...base.claims.map((c) => c.id)) + 1;
-    const claim: Claim = {
-      id: cid, agentId: input.agentId, agentName: agent?.name ?? `Agent #${input.agentId}`,
-      claimant: wallet ?? '0xB41d…C2de', title: input.title, description: input.description,
-      evidence: input.evidence, impact: input.impact, severityClaimed: input.severity,
-      severityAi: null, status: 'pending', duplicateOf: 0,
-      payout: agent ? agent.liabilities[input.severity] : 0n,
-      submittedAt: clock() + ' UTC', resolvedAt: null, auditReason: null, audit: null,
-    };
-    setBase((b) => ({ ...b, claims: [claim, ...b.claims] }));
-    push({ title: `Claim #${cid} filed`, detail: `${agent?.name ?? 'agent'} · ${input.severity} claimed · deterministic intake`, severity: 'HIGH', kind: 'Claims' });
-  }, [base.agents, wallet, push]);
-
-  const resolveDisputeLocal = useCallback((disputeId: number, outcome: 'upheld' | 'overturned', severity: Severity) => {
-    void sdk.resolveDispute(disputeId, outcome, severity);
-    setBase((b) => {
-      const d = b.disputes.find((x) => x.id === disputeId);
-      if (!d) return b;
-      return {
-        ...b,
-        disputes: b.disputes.map((x) =>
-          x.id === disputeId ? { ...x, resolved: true, outcome: outcome === 'upheld' ? 'valid' : 'invalid' } : x
-        ),
-        claims: b.claims.map((c) =>
-          c.id === d.claimId
-            ? {
-                ...c,
-                status: outcome === 'upheld' ? 'valid' : 'invalid',
-                severityAi: severity,
-                resolvedAt: clock() + ' UTC',
-                auditReason: `Arbitration ${outcome} — ${severity} tier confirmed by owner.`,
-              }
-            : c
-        ),
-      };
-    });
-    push({ title: `Dispute #${disputeId} resolved`, detail: `${outcome} · severity → ${severity}`, severity: 'MEDIUM', kind: 'Disputes' });
-  }, [push]);
+  const fileClaim = useCallback((input: {
+    agentId: number; title: string; description: string; evidence: string; impact: string; severity: Severity;
+  }) => {
+    void applyWrite(
+      `file_claim(agent #${input.agentId})`,
+      (acc) => sdk.fileClaim(input, acc),
+      (r) => r.claims.some((c) => c.title === input.title && c.agentId === input.agentId),
+    );
+  }, [applyWrite]);
 
   const claimPayout = useCallback((claimId: number) => {
-    void sdk.claimPayout(claimId);
-    setBase((b) => {
-      const c = b.claims.find((x) => x.id === claimId);
-      if (!c || c.status !== 'valid') return b;
-      const agent = b.agents.find((a) => a.id === c.agentId);
-      const reward = agent ? agent.liabilities[c.severityAi ?? c.severityClaimed] : c.payout;
-      if (!agent || agent.bond < reward) return b;
-      return {
-        ...b,
-        claims: b.claims.map((x) =>
-          x.id === claimId ? { ...x, status: 'paid', payout: reward, resolvedAt: clock() + ' UTC' } : x
-        ),
-        agents: b.agents.map((a) => (a.id === c.agentId ? { ...a, bond: a.bond - reward } : a)),
-        headline: 'PAYOUT EXECUTED',
-        headlineDetail: `Claim #${claimId} settled from the ${agent.name} bond: ${netOf(reward) / 10n ** 18n} GEN to the claimant, ${feeOf(reward) / 10n ** 18n} GEN protocol fee.`,
-      };
-    });
-    push({ title: `Claim #${claimId} paid`, detail: 'claim_payout() · bond → claimant + fee', severity: 'INFO', kind: 'Payout' });
-  }, [push]);
+    void applyWrite(
+      `claim_payout(#${claimId})`,
+      (acc) => sdk.claimPayout(claimId, acc),
+      (r) => r.claims.find((c) => c.id === claimId)?.status === 'paid',
+    );
+  }, [applyWrite]);
 
-  const raiseDisputeLocal = useCallback((claimId: number, reason: string) => {
-    void sdk.raiseDispute(claimId, reason);
-    setBase((b) => {
-      const c = b.claims.find((x) => x.id === claimId);
-      const agent = c ? b.agents.find((a) => a.id === c.agentId) : undefined;
-      if (!c || !agent) return b;
-      const id = Math.max(0, ...b.disputes.map((d) => d.id)) + 1;
-      const dispute: Dispute = {
-        id, claimId, raisedBy: wallet ?? '0xB41d…C2de', reason,
-        resolved: false, outcome: 'open', frozenTiers: { ...agent.liabilities },
-        raisedAt: clock() + ' UTC',
-      };
-      return {
-        ...b,
-        disputes: [dispute, ...b.disputes],
-        claims: b.claims.map((x) => (x.id === claimId ? { ...x, status: 'disputed' } : x)),
-        status: 'DISPUTE_OPEN',
-        posture: 'DISPUTED',
-        headline: 'DISPUTE OPENED',
-        headlineDetail: `Claim #${claimId} is frozen for arbitration — liability tiers snapshotted at raise time.`,
-      };
-    });
-    push({ title: `Dispute raised on claim #${claimId}`, detail: `${reason} · tiers frozen`, severity: 'HIGH', kind: 'Disputes' });
-  }, [wallet, push]);
+  const raiseDispute = useCallback((claimId: number, reason: string) => {
+    void applyWrite(
+      `raise_dispute(#${claimId})`,
+      (acc) => sdk.raiseDispute(claimId, reason, acc),
+      (r) => r.disputes.some((d) => d.claimId === claimId && !d.resolved),
+    );
+  }, [applyWrite]);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const s = await sdk.getScenario(scenario);
-    setBase(s);
-    setLastCheckSec(0);
-    setLoading(false);
-  }, [scenario]);
+  const resolveDispute = useCallback((disputeId: number, outcome: Decision, severity: Severity) => {
+    void applyWrite(
+      `resolve_dispute(#${disputeId})`,
+      (acc) => sdk.resolveDispute(disputeId, outcome, severity, acc),
+      (r) => r.disputes.find((d) => d.id === disputeId)?.resolved === true,
+    );
+  }, [applyWrite]);
+
+  const requeueDisputed = useCallback((claimId: number) => {
+    void applyWrite(
+      `requeue_disputed(#${claimId})`,
+      (acc) => sdk.requeueDisputed(claimId, acc),
+      (r) => r.claims.find((c) => c.id === claimId)?.status === 'pending',
+    );
+  }, [applyWrite]);
+
+  const pending = useMemo(() => claims.filter((c) => c.status === 'pending'), [claims]);
+  const openDisputes = useMemo(() => disputes.filter((d) => !d.resolved), [disputes]);
+  const totalBond = useMemo(() => agents.reduce((n, a) => n + a.bond, 0n), [agents]);
+  const activity = useMemo(() => deriveActivity(claims, disputes), [claims, disputes]);
+
+  const status: SystemStatus = openDisputes.length ? 'DISPUTE_OPEN' : pending.length ? 'AUDITS_PENDING' : 'OPERATIONAL';
+  const posture: Posture = openDisputes.length ? 'DISPUTED' : claims.some((c) => c.status === 'paid') ? 'SETTLED' : 'NOMINAL';
+
+  const headline =
+    status === 'DISPUTE_OPEN' ? 'DISPUTE OPEN'
+    : status === 'AUDITS_PENDING' ? 'AUDITS PENDING'
+    : 'REGISTRY OPERATIONAL';
+  const headlineDetail =
+    status === 'DISPUTE_OPEN'
+      ? `${openDisputes.length} claim${openDisputes.length === 1 ? '' : 's'} frozen for owner arbitration.`
+      : status === 'AUDITS_PENDING'
+        ? `${pending.length} claim${pending.length === 1 ? '' : 's'} await audit_claim() on ${NETWORK.chain}.`
+        : `Live state of ${NETWORK.contract.slice(0, 10)}… on ${NETWORK.chain}.`;
 
   const value: ShieldState = {
-    scenario,
-    setScenario: setScenarioState,
-    simulate,
-    status: base.status,
-    posture: base.posture,
-    headline: base.headline,
-    headlineDetail: base.headlineDetail,
-    agents: base.agents,
-    claims: base.claims,
-    disputes: base.disputes,
-    activity: base.activity,
-    loading,
-    lastCheckSec,
-    autoRefresh,
-    setAutoRefresh,
-    wallet,
+    loading, error, notice, lastTx, clearNotice: () => setNotice(null),
+    agents, claims, disputes, activity,
+    status, posture, headline, headlineDetail, pending, openDisputes, totalBond,
+    lastCheckSec, autoRefresh, setAutoRefresh, refresh,
+    account,
+    walletLabel: account ? shortAddr(account) : null,
+    connecting,
     connectWallet: () => {
-      void sdk
-        .connectWallet()
-        .then(setWallet)
-        .catch((e) => console.warn('[wallet] connection failed or rejected:', e));
+      setConnecting(true);
+      void sdk.connectWallet()
+        .then((acc) => { setAccount(acc); setNotice('Wallet connected'); })
+        .catch((e) => setNotice(e instanceof Error ? e.message : String(e)))
+        .finally(() => setConnecting(false));
     },
-    disconnectWallet: () => {
-      void sdk.disconnectWallet().finally(() => setWallet(null));
-    },
-    auditing,
-    auditStep,
-    auditClaimId,
-    runAudit,
-    bondAgent,
-    cycleAgentStatus,
-    fileClaim,
-    claimPayout,
-    raiseDisputeLocal,
-    resolveDisputeLocal,
-    refresh,
+    disconnectWallet: () => { setAccount(null); setNotice('Wallet disconnected locally'); },
+    auditing, auditStep, auditClaimId, runAudit,
+    bondAgent, setAgentStatus, fileClaim, claimPayout, raiseDispute, resolveDispute, requeueDisputed,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
-export { NETWORK };
-
-export function severityLabel(s: Severity): string {
-  return s.toUpperCase();
-}
-
+export { NETWORK, explorerTx };
 export function severityRank(s: Severity): number {
   return SEVERITY_INDEX[s];
 }
-
-export { GEN };

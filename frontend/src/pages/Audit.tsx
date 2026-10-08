@@ -4,21 +4,19 @@ import clsx from 'clsx';
 import { Gavel, Play, Waypoints } from 'lucide-react';
 import { PageHeader } from '../components/Shell';
 import { StatusBadge } from '../components/StatusBadge';
-import { ValidatorConsensus } from '../components/Cards';
+import { AuditResult } from '../components/Cards';
 import { AuditModal } from '../components/AuditModal';
 import { useShield } from '../lib/shield';
 import { formatGen } from '../lib/types';
 
 export function Audit() {
   const s = useShield();
-  const pending = s.claims.filter((c) => c.status === 'pending');
-  const audited = s.claims.filter((c) => c.audit);
-  const defaultId = pending[0]?.id ?? audited[0]?.id ?? 0;
+  const audited = s.claims.filter((c) => c.severityAi !== null);
+  const defaultId = s.pending[0]?.id ?? audited[0]?.id ?? 0;
   const [selectedId, setSelectedId] = useState(defaultId);
   const [auditOpen, setAuditOpen] = useState(false);
 
-  const claim = s.claims.find((c) => c.id === selectedId) ?? pending[0] ?? audited[0] ?? null;
-  const rounds = audited.length;
+  const claim = s.claims.find((c) => c.id === selectedId) ?? s.pending[0] ?? audited[0] ?? null;
 
   const run = (id: number) => {
     setSelectedId(id);
@@ -32,8 +30,8 @@ export function Audit() {
         title="Audit Queue"
         sub="audit_claim() is the only nondeterministic method. Anyone can trigger it; every validator re-runs the same prompt and prompt_comparative accepts only identical decisions and identical rewards."
         actions={
-          <button onClick={() => pending[0] && run(pending[0].id)} className="btn-primary" disabled={!pending.length || s.auditing}>
-            <Play size={13} /> {s.auditing ? 'Auditing…' : pending.length ? `Run next audit (${pending.length})` : 'Queue clear'}
+          <button onClick={() => s.pending[0] && run(s.pending[0].id)} className="btn-primary" disabled={!s.pending.length || s.auditing || !s.account}>
+            <Play size={13} /> {s.auditing ? 'Auditing…' : s.pending.length ? `Run next audit (${s.pending.length})` : 'Queue clear'}
           </button>
         }
       />
@@ -47,7 +45,7 @@ export function Audit() {
               <span className="font-mono text-[11px] text-mute">get_pending_queue()</span>
             </div>
             <ul className="space-y-2">
-              {pending.map((c) => (
+              {s.pending.map((c) => (
                 <li key={c.id}>
                   <button
                     onClick={() => setSelectedId(c.id)}
@@ -62,18 +60,18 @@ export function Audit() {
                       <span className="ml-auto font-mono text-[11px] text-mute">{formatGen(c.payout)} GEN</span>
                     </div>
                     <p className="text-[12.5px] font-semibold mt-1 truncate">{c.title}</p>
-                    <p className="text-[11px] text-mute truncate">{c.agentName} · filed {c.submittedAt}</p>
+                    <p className="text-[11px] text-mute truncate">{c.agentName}</p>
                     <span
                       onClick={(e) => { e.stopPropagation(); run(c.id); }}
                       role="button"
-                      className="btn-accent !py-1 !px-2 !text-[11px] mt-2 inline-flex"
+                      className={clsx('btn-accent !py-1 !px-2 !text-[11px] mt-2 inline-flex', !s.account && 'opacity-40 pointer-events-none')}
                     >
                       <Play size={11} /> Run audit
                     </span>
                   </button>
                 </li>
               ))}
-              {!pending.length && (
+              {!s.pending.length && (
                 <li className="px-3 py-8 text-center">
                   <p className="text-[13px] text-sub font-semibold">Queue clear</p>
                   <p className="text-[11.5px] text-mute mt-1">Every claim has a final decision.</p>
@@ -86,7 +84,7 @@ export function Audit() {
           <div className="panel p-4">
             <div className="flex items-center justify-between mb-3">
               <p className="meta flex items-center gap-1.5"><Waypoints size={12} /> Audit rounds</p>
-              <span className="font-mono text-[11px] text-mute">{rounds} on record</span>
+              <span className="font-mono text-[11px] text-mute">{audited.length} on record</span>
             </div>
             <ul className="space-y-1.5">
               {audited.map((c) => (
@@ -100,7 +98,7 @@ export function Audit() {
                   >
                     <span className="font-mono text-[11.5px] font-bold">CL-{String(c.id).padStart(3, '0')}</span>
                     <span className="text-[11px] truncate text-mute">{c.auditReason}</span>
-                    <span className="ml-auto shrink-0"><StatusBadge status={c.audit?.finalDecision ?? 'pending'} size="sm" /></span>
+                    <span className="ml-auto shrink-0"><StatusBadge status={c.status} size="sm" /></span>
                   </button>
                 </li>
               ))}
@@ -109,33 +107,40 @@ export function Audit() {
           </div>
         </div>
 
-        {/* consensus + explainer */}
+        {/* result + explainer */}
         <div className="lg:col-span-7 space-y-3">
-          {claim?.audit ? (
-            <ValidatorConsensus audit={claim.audit} />
-          ) : claim ? (
+          {claim ? (
+            <AuditResult claim={claim} />
+          ) : (
             <div className="panel p-5 text-center">
-              <span className="grid h-11 w-11 place-items-center rounded-lg border border-accent/40 bg-accent/10 mx-auto">
-                <Gavel size={20} className="text-accent" />
+              <span className="grid h-11 w-11 place-items-center rounded-lg border border-edge bg-elevated mx-auto">
+                <Gavel size={20} className="text-mute" />
               </span>
-              <p className="text-[15px] font-extrabold mt-3">No audit round for CL-{String(claim.id).padStart(3, '0')}</p>
-              <p className="text-[12.5px] text-sub mt-1 max-w-[420px] mx-auto leading-relaxed">
-                Trigger <code className="font-mono text-accent">audit_claim()</code> to copy the agent and claim into
-                memory, build the dedup context, and run five validators on the same prompt.
+              <p className="text-[15px] font-extrabold mt-3">No claims on chain</p>
+              <p className="text-[12.5px] text-sub mt-1">File a claim to start an audit round.</p>
+            </div>
+          )}
+
+          {claim?.status === 'pending' && (
+            <div className="panel p-4 text-center">
+              <p className="text-[13px] text-sub leading-relaxed max-w-[460px] mx-auto">
+                CL-{String(claim.id).padStart(3, '0')} has no round yet. Trigger{' '}
+                <code className="font-mono text-accent">audit_claim()</code> to snapshot the agent and claim,
+                build the dedup context, and run the validators on the same prompt.
               </p>
-              <button onClick={() => run(claim.id)} className="btn-accent mt-4" disabled={s.auditing}>
+              <button onClick={() => run(claim.id)} className="btn-accent mt-3" disabled={s.auditing || !s.account}>
                 <Play size={14} /> {s.auditing ? 'Audit running…' : 'Run audit now'}
               </button>
             </div>
-          ) : null}
+          )}
 
           <div className="panel p-4">
             <p className="meta">How an audit round works</p>
             <ol className="mt-3 space-y-3">
               {[
                 ['Deterministic intake already done', 'file_claim() sealed evidence, impact and claimed severity on-chain without any LLM involvement.'],
-                ['audit_claim() copies to memory', 'The agent manifest, claim record and bounded dedup context (recent claims, settle ledger, first_invalid_index) are snapshotted for every validator.'],
-                ['Five validators, one prompt', 'Each validator re-runs the identical prompt against the identical snapshot — no validator sees another’s output before committing.'],
+                ['audit_claim() copies to memory', 'The agent manifest, claim record and bounded dedup context (recent claims) are snapshotted for every validator.'],
+                ['Validators, one prompt', 'Each validator re-runs the identical prompt against the identical snapshot — no validator sees another’s output before committing.'],
                 ['prompt_comparative finalizes', 'Consensus requires identical decisions AND identical rewards; anything else records no round. Decisions: valid, invalid, or duplicate (derived check against prior claims).'],
                 ['Settlement is mechanical', 'Valid + bond covers tier → auto-payout (claimant net, protocol fee ≤10%). Valid but underfunded → claimable after a top-up. Disputable by either side, which freezes the tier table.'],
               ].map(([t, d], i) => (

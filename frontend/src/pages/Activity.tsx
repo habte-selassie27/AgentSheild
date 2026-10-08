@@ -4,7 +4,7 @@ import { PageHeader } from '../components/Shell';
 import { useShield } from '../lib/shield';
 import type { ActivityEvent } from '../lib/types';
 
-const KINDS: Array<ActivityEvent['kind'] | 'ALL'> = ['ALL', 'Claims', 'Consensus', 'Payout', 'Registry', 'Disputes', 'System'];
+const KINDS: Array<ActivityEvent['kind'] | 'ALL'> = ['ALL', 'Claims', 'Consensus', 'Payout', 'Disputes'];
 
 const SEV_DOT: Record<string, string> = {
   CRITICAL: 'bg-crit', HIGH: 'bg-high', MEDIUM: 'bg-warn', LOW: 'bg-info', INFO: 'bg-mute',
@@ -37,7 +37,7 @@ export function Activity() {
     <>
       <PageHeader
         title="Activity"
-        sub="Append-only event log from claim intake, audit rounds, settlement and registry writes. In production this mirrors the registry's on-chain event stream."
+        sub="A readable projection of current on-chain state — one record per claim and dispute, derived from the contract's live storage (it exposes no historical event log)."
         actions={
           <div className="relative">
             <input
@@ -81,9 +81,7 @@ export function Activity() {
               <span className={clsx('mt-1.5 h-2 w-2 rounded-full shrink-0', SEV_DOT[e.severity])} />
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-semibold leading-snug">{e.title}</p>
-                <p className="text-[11.5px] text-mute mt-0.5">
-                  <span className="font-mono">{e.time}</span> · {e.detail}
-                </p>
+                <p className="text-[11.5px] text-mute mt-0.5">{e.detail}</p>
               </div>
               <span className="chip border-edge bg-elevated text-mute shrink-0">{e.kind}</span>
               <span className={clsx('chip shrink-0', 'border-current/30', SEV_TEXT[e.severity], 'bg-transparent')}>
@@ -98,7 +96,7 @@ export function Activity() {
       </div>
 
       <p className="text-[11.5px] text-mute mt-3 font-mono">
-        {rows.length} of {s.activity.length} events · retention 30 days · hash-chained
+        {rows.length} of {s.activity.length} records · derived from live claim &amp; dispute storage
       </p>
     </>
   );

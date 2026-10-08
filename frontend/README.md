@@ -5,8 +5,9 @@ Agents register with a conduct policy, per-severity liability tiers and a GEN bo
 anyone can file a claim; validators reach LLM consensus on whether the agent actually
 misbehaved; settlement pays out of the bond deterministically.
 
-> Settlement is on-chain via the `agentsheild.registry` intelligent contract.
-> This frontend is a read + trigger layer only (mock data + typed SDK stubs).
+> Settlement is on-chain via the deployed GenLayer intelligent contract. Reads run
+> **live** against StudioNet (no mock data); writes are signed by the connected
+> wallet via MetaMask + the GenLayer snap.
 
 ## Run
 
@@ -37,18 +38,18 @@ lucide-react · clsx
 | `/disputes` | Frozen tiers + owner arbitration | `resolve_dispute`, `requeue_disputed` |
 | `/activity` | Append-only event log | events |
 
-Scenarios (topbar switcher): **QUEUE** (default, claim #7 pending), **SETTLED**
-(claim #7 paid, bond reduced), **DISPUTED** (dispute open, tiers frozen).
+Every page reads live on-chain state from the contract `0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF`
+on StudioNet — there are no mock values. Connect a wallet to send real transactions.
 
 ## Structure
 
 ```
 src/
   lib/
-    types.ts     # domain types (Agent, Claim, Dispute, AuditRound, …), formatGen, fee helpers
-    mock.ts      # seeded registry dataset + scenario overlays
-    sdk.ts       # service layer — typed stubs mirroring AgentSheild.py, swap bodies for genlayer-js RPC
-    shield.tsx   # app state provider: scenario, wallet, audit flow, registry writes
+    types.ts     # domain types (Agent, Claim, Dispute, ActivityEvent), formatGen
+    genlayer.ts  # genlayer-js client + network/contract config
+    sdk.ts       # live reads/writes against AgentSheild.py via genlayer-js
+    shield.tsx   # app state provider: live registry, wallet, audit flow, writes
   components/
     Shell.tsx        # sidebar, topbar, scenario switcher, banners, footer
     Cards.tsx        # KPIs, bond gauge, pipeline, trend, feeds, claim cards, consensus
@@ -60,9 +61,11 @@ src/
 
 ## Notes
 
-- Amounts are u256 atto-GEN; display uses `formatGen` (1e18 → GEN). Protocol fee is
-  `FEE_BPS = 500` (5%, contract cap 1000 bps) via `feeOf` / `netOf`.
+- Amounts are u256 wei (atto-GEN); display uses `formatGen` (1e18 → GEN). The
+  contract's fee bps is not exposed by any view, so the UI shows the gross tier
+  payout and lets the contract apply its fee on-chain.
 - Severities: `info < low < medium < high < critical`; audit decisions:
   `valid | invalid | duplicate`.
-- `sdk.ts` is the single integration surface — replace the stub bodies with live RPC
-  calls against `AgentSheild.py` without touching the UI.
+- `sdk.ts` is the single integration surface: it enumerates the registry via
+  `get_agent` / `get_claim` / `get_pending_queue` / `get_dispute` and sends writes
+  through `genlayer-js`. Set `VITE_AGENTSHEILD_CONTRACT` to target another deployment.

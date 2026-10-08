@@ -29,13 +29,11 @@ export function Agents() {
     });
   }, [s.agents, q, filter]);
 
-  const totalBond = s.agents.reduce((n, a) => n + a.bond, 0n);
-
   return (
     <>
       <PageHeader
         title="Agent Registry"
-        sub="Registered agents, their conduct policies, liability tiers and GEN bonds. Click a row to inspect the manifest; actions are staged registry writes."
+        sub="Live agents with their conduct policies, liability tiers and GEN bonds, read from the contract. Actions send real registry transactions signed by the connected wallet."
         actions={
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mute" />
@@ -65,7 +63,7 @@ export function Agents() {
             </span>
           </button>
         ))}
-        <span className="ml-auto font-mono text-[11px] text-mute">{rows.length} shown · {formatGen(totalBond)} GEN bonded</span>
+        <span className="ml-auto font-mono text-[11px] text-mute">{rows.length} shown · {formatGen(s.totalBond)} GEN bonded</span>
       </div>
 
       <div className="panel overflow-hidden">
@@ -78,6 +76,7 @@ export function Agents() {
             const claims = s.claims.filter((c) => c.agentId === a.id);
             const paidCount = claims.filter((c) => c.status === 'paid').length;
             const underfunded = a.bond < a.liabilities.critical;
+            const isOperator = s.account?.toLowerCase() === a.operator.toLowerCase();
             return (
               <li key={a.id} className="border-b border-edge last:border-0">
                 <button
@@ -94,7 +93,7 @@ export function Agents() {
                     </span>
                     <span className="min-w-0">
                       <span className="block text-[13px] font-semibold truncate">{a.name}</span>
-                      <span className="block text-[11px] text-mute truncate">registered {a.createdAt} · {claims.length} claims</span>
+                      <span className="block text-[11px] text-mute truncate">{a.claimCount} claims on record</span>
                     </span>
                   </span>
                   <span><StatusBadge status={a.status} size="sm" /></span>
@@ -113,8 +112,7 @@ export function Agents() {
                   <div className="px-4 pb-4 pt-1 bg-elevated/40 grid grid-cols-1 md:grid-cols-3 gap-3 anim-rise">
                     <div className="panel p-3 md:col-span-1">
                       <p className="meta">Conduct policy</p>
-                      <p className="text-[12.5px] text-sub leading-relaxed mt-2">{a.policy}</p>
-                      <p className="text-[11.5px] text-mute mt-2.5 leading-snug">{a.description}</p>
+                      <p className="text-[12.5px] text-sub leading-relaxed mt-2 whitespace-pre-wrap">{a.policy}</p>
                     </div>
 
                     <div className="panel p-3">
@@ -143,13 +141,47 @@ export function Agents() {
                         <div className="flex justify-between"><dt className="text-mute">Status</dt><dd className="font-mono font-bold capitalize">{a.status}</dd></div>
                       </dl>
                       <div className="flex flex-wrap gap-2 mt-3">
-                        <button onClick={() => s.bondAgent(a.id, GEN(5))} className="btn-accent !py-1.5 !px-2.5 !text-[11.5px]">
+                        <button
+                          onClick={() => s.bondAgent(a.id, GEN(5))}
+                          disabled={!s.account || a.status !== 'active'}
+                          className="btn-accent !py-1.5 !px-2.5 !text-[11.5px] disabled:opacity-40"
+                          title={a.status !== 'active' ? 'Only active agents can be bonded' : 'Send 5 GEN bond'}
+                        >
                           <Wallet size={12} /> Bond +5 GEN
                         </button>
-                        <button onClick={() => s.cycleAgentStatus(a.id)} className="btn-ghost !py-1.5 !px-2.5 !text-[11.5px]">
-                          {a.status === 'active' ? 'Pause' : a.status === 'paused' ? 'Delist' : 'Reactivate'}
-                        </button>
+                        {a.status === 'active' && (
+                          <button
+                            onClick={() => s.setAgentStatus(a.id, 'paused')}
+                            disabled={!s.account}
+                            className="btn-ghost !py-1.5 !px-2.5 !text-[11.5px] disabled:opacity-40"
+                          >
+                            Pause
+                          </button>
+                        )}
+                        {a.status === 'paused' && (
+                          <button
+                            onClick={() => s.setAgentStatus(a.id, 'active')}
+                            disabled={!s.account}
+                            className="btn-ghost !py-1.5 !px-2.5 !text-[11.5px] disabled:opacity-40"
+                          >
+                            Resume
+                          </button>
+                        )}
+                        {a.status !== 'delisted' && (
+                          <button
+                            onClick={() => s.setAgentStatus(a.id, 'delisted')}
+                            disabled={!s.account}
+                            className="btn-ghost !py-1.5 !px-2.5 !text-[11.5px] disabled:opacity-40"
+                            title="Delist refunds the remaining bond to the operator"
+                          >
+                            Delist
+                          </button>
+                        )}
                       </div>
+                      {s.account && !isOperator && (
+                        <p className="text-[10.5px] text-mute mt-2">Actions require the operator wallet ({a.operator.slice(0, 10)}…).</p>
+                      )}
+                      {!s.account && <p className="text-[10.5px] text-mute mt-2">Connect a wallet to act.</p>}
                     </div>
                   </div>
                 )}
@@ -157,7 +189,9 @@ export function Agents() {
             );
           })}
           {rows.length === 0 && (
-            <li className="px-4 py-10 text-center text-[13px] text-mute">No agents match “{q}”.</li>
+            <li className="px-4 py-10 text-center text-[13px] text-mute">
+              {s.agents.length ? `No agents match “${q}”.` : 'No agents registered on chain.'}
+            </li>
           )}
         </ul>
       </div>

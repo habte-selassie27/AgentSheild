@@ -6,9 +6,6 @@ import { PageHeader } from '../components/Shell';
 import { StatusBadge } from '../components/StatusBadge';
 import { useShield } from '../lib/shield';
 import { formatGen } from '../lib/types';
-import type { Severity } from '../lib/types';
-
-const OUTCOME_SEV: Record<string, Severity> = { upheld: 'critical', overturned: 'info' };
 
 export function Disputes() {
   const s = useShield();
@@ -52,7 +49,7 @@ export function Disputes() {
                       <span className="ml-auto"><StatusBadge status="disputed" size="sm" /></span>
                     </div>
                     <p className="text-[12.5px] text-sub mt-1 leading-snug">{d.reason}</p>
-                    <p className="text-[10.5px] font-mono text-mute mt-1">raised {d.raisedAt} · {d.raisedBy.slice(0, 10)}…</p>
+                    <p className="text-[10.5px] font-mono text-mute mt-1">{d.raisedBy.slice(0, 10)}…</p>
                   </button>
                 </li>
               ))}
@@ -82,7 +79,7 @@ export function Disputes() {
                   >
                     <span className="font-mono text-[11.5px] font-bold">DSP-{String(d.id).padStart(3, '0')}</span>
                     <span className="text-[11px] text-mute truncate">claim #{d.claimId} · {d.outcome}</span>
-                    <span className="ml-auto"><StatusBadge status={d.outcome} size="sm" /></span>
+                    <span className="ml-auto"><StatusBadge status={d.outcome || 'valid'} size="sm" /></span>
                   </button>
                 </li>
               ))}
@@ -98,7 +95,7 @@ export function Disputes() {
               <div className={clsx('panel p-4 border-l-[3px]', current.resolved ? 'border-l-edge' : 'border-l-high')}>
                 <div className="flex items-center justify-between mb-2">
                   <p className="meta flex items-center gap-1.5"><Scale size={12} /> DSP-{String(current.id).padStart(3, '0')}</p>
-                  <StatusBadge status={current.resolved ? (current.outcome as Severity) || 'valid' : 'disputed'} size="sm" />
+                  <StatusBadge status={current.resolved ? (current.outcome || 'valid') : 'disputed'} size="sm" />
                 </div>
                 <p className="text-[15px] font-extrabold">Claim #{current.claimId} — {claim?.title ?? 'claim'}</p>
                 <p className="text-[13px] text-sub leading-relaxed mt-1.5">{current.reason}</p>
@@ -106,8 +103,8 @@ export function Disputes() {
                 <dl className="mt-3.5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[12px] border-t border-edge pt-3">
                   {[
                     ['Raised by', `${current.raisedBy.slice(0, 10)}…`],
-                    ['Raised', current.raisedAt],
                     ['Outcome', current.resolved ? current.outcome : 'open'],
+                    ['Claim status', claim?.status ?? '—'],
                     ['Agent', agent?.name ?? '—'],
                   ].map(([k, v]) => (
                     <div key={k}>
@@ -133,17 +130,29 @@ export function Disputes() {
                     <p className="meta mb-2">Owner arbitration (resolve_dispute)</p>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        onClick={() => s.resolveDisputeLocal(current.id, 'upheld', OUTCOME_SEV[claim?.severityClaimed ?? 'high'] ?? 'high')}
-                        className="btn-accent"
+                        onClick={() => s.resolveDispute(current.id, 'valid', claim?.severityClaimed ?? 'high')}
+                        disabled={!s.account}
+                        className="btn-accent disabled:opacity-40"
                       >
                         Uphold claim · pay frozen tier
                       </button>
                       <button
-                        onClick={() => s.resolveDisputeLocal(current.id, 'overturned', 'info')}
-                        className="btn-ghost"
+                        onClick={() => s.resolveDispute(current.id, 'invalid', 'info')}
+                        disabled={!s.account}
+                        className="btn-ghost disabled:opacity-40"
                       >
                         Overturn · no payout
                       </button>
+                      {claim && (
+                        <button
+                          onClick={() => s.requeueDisputed(claim.id)}
+                          disabled={!s.account}
+                          className="btn-ghost disabled:opacity-40"
+                          title="Owner or operator: back to pending for a fresh audit"
+                        >
+                          Requeue for re-audit
+                        </button>
+                      )}
                     </div>
                     <p className="text-[10.5px] text-mute mt-2 font-mono">owner-only · arbitration pays from the frozen table</p>
                   </div>
@@ -175,9 +184,9 @@ export function Disputes() {
               <span className="grid h-11 w-11 place-items-center rounded-lg border border-edge bg-elevated mx-auto">
                 <Scale size={20} className="text-mute" />
               </span>
-              <p className="text-[14px] font-bold mt-3">No disputes in this state</p>
+              <p className="text-[14px] font-bold mt-3">No disputes on chain</p>
               <p className="text-[12.5px] text-mute mt-1 max-w-[420px] mx-auto leading-relaxed">
-                Raise one from a valid or settled claim to freeze its tiers and put the decision in front of the owner.
+                Raise one from a valid claim to freeze its tiers and put the decision in front of the owner.
               </p>
               <Link to="/claims" className="btn-ghost mt-4 inline-flex">Go to claims →</Link>
             </div>

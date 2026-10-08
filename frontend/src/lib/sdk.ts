@@ -1,183 +1,286 @@
 /**
- * AgentSheild SDK — service layer between UI and the GenLayer intelligent
- * contract (contracts/AgentSheild.py).
+ * AgentSheild SDK — live service layer between the UI and the deployed
+ * GenLayer intelligent contract (contracts/AgentSheild.py).
  *
- * Every function is a typed stub returning the local dataset with realistic
- * latency. To go live, replace the bodies with genlayer-js calls against the
- * deployed registry (see NETWORK / CONTRACT_ID below) — the signatures mirror
- * the contract's 20 methods, so page components will not change.
+ * Reads call the contract's view methods over the StudioNet RPC.
+ * Writes are signed by the injected wallet (MetaMask + GenLayer snap).
  */
-import { BASE_ACTIVITY, BASE_AGENTS, BASE_CLAIMS, BASE_DISPUTES, CONTRACT_ID, buildScenario } from './mock';
-import type { ActivityEvent, Agent, Claim, Dispute, Gen, Scenario, Severity } from './types';
+import { client, CONTRACT } from './genlayer';
+import type { Agent, AgentStatus, Claim, ClaimStatus, Decision, Dispute, Gen, Severity } from './types';
+
+const ADDR = CONTRACT;
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export const DEMO_ADDRESS = '0x7C4b…9A21';
+/** Coerce a decoded u256 (number | bigint | string) into a bigint safely. */
+export function toGen(v: unknown): Gen {
+  if (v === null || v === undefined) return 0n;
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') return BigInt(Math.trunc(v));
+  try {
+    return BigInt(String(v));
+  } catch {
+    return 0n;
+  }
+}
+
+const toNum = (v: unknown): number => {
+  if (typeof v === 'number') return v;
+  try {
+    return Number(toGen(v));
+  } catch {
+    return 0;
+  }
+};
+
+const SEVERITIES: Severity[] = ['info', 'low', 'medium', 'high', 'critical'];
+function normSev(v: unknown): Severity {
+  const s = String(v ?? '').trim().toLowerCase();
+  return (SEVERITIES as string[]).includes(s) ? (s as Severity) : 'info';
+}
+
+/* ------------------------------------------------------------------ reads */
+
+async function read<T>(functionName: string, args: unknown[] = []): Promise<T> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (await client.readContract({ address: ADDR, functionName, args: args as any })) as T;
+}
+
+/**
+ * Read a key-addressed record. The contract's TreeMaps revert on an absent key
+ * (e.g. get_agent(999) when only agents 1..N exist), which is how we detect the
+ * end of a contiguous id range. A single retry absorbs transient RPC hiccups.
+ */
+async function tryRead<T>(functionName: string, args: unknown[]): Promise<T | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await read<T>(functionName, args);
+    } catch {
+      if (attempt === 0) await delay(250);
+    }
+  }
+  return null;
+}
+
+/** The contract returns JSON-encoded id arrays as plain strings. */
+function parseIds(raw: unknown): number[] {
+  if (Array.isArray(raw)) return raw.map((x) => toNum(x));
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map((x) => toNum(x)) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function mapAgent(r: any): Agent {
+  const l = r?.liabilities ?? {};
+  return {
+    id: toNum(r?.id),
+    operator: String(r?.operator ?? ''),
+    name: String(r?.name ?? ''),
+    policy: String(r?.policy ?? ''),
+    liabilities: {
+      critical: toGen(l.critical),
+      high: toGen(l.high),
+      medium: toGen(l.medium),
+      low: toGen(l.low),
+      info: 0n,
+    },
+    bond: toGen(r?.bond_bal),
+    status: String(r?.status ?? 'active') as AgentStatus,
+    claimCount: toNum(r?.claims),
+  };
+}
+
+function mapClaim(r: any, agentName: string): Claim {
+  const ai = r?.severity_ai;
+  return {
+    id: toNum(r?.id),
+    agentId: toNum(r?.agent_id),
+    agentName,
+    claimant: String(r?.claimant ?? ''),
+    title: String(r?.title ?? ''),
+    description: String(r?.description ?? ''),
+    evidence: String(r?.evidence ?? ''),
+    impact: String(r?.impact ?? ''),
+    severityClaimed: normSev(r?.claimed),
+    severityAi: ai ? normSev(ai) : null,
+    status: String(r?.status ?? 'pending') as ClaimStatus,
+    duplicateOf: toNum(r?.duplicate_of),
+    payout: toGen(r?.payout),
+    auditReason: r?.reason ? String(r.reason) : null,
+  };
+}
+
+function mapDispute(r: any): Dispute {
+  const l = r?.bound_liabilities ?? {};
+  return {
+    id: toNum(r?.id),
+    claimId: toNum(r?.claim_id),
+    raisedBy: String(r?.raised_by ?? ''),
+    reason: String(r?.reason ?? ''),
+    resolved: Boolean(r?.resolved),
+    outcome: String(r?.outcome ?? ''),
+    frozenTiers: {
+      critical: toGen(l.critical),
+      high: toGen(l.high),
+      medium: toGen(l.medium),
+      low: toGen(l.low),
+      info: 0n,
+    },
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+export interface Registry {
+  agents: Agent[];
+  claims: Claim[];
+  disputes: Dispute[];
+}
+
+const MAX_IDS = 500;
+
+/**
+ * Enumerate the whole registry from the contract's key-addressed views.
+ * Agent/claim/dispute ids are contiguous (counters start at 1), so probing
+ * upwards until a revert gives the exact set — there is no list-all view.
+ */
+export async function loadRegistry(): Promise<Registry> {
+  const agents: Agent[] = [];
+  for (let id = 1; id <= MAX_IDS; id++) {
+    const raw = await tryRead<unknown>('get_agent', [BigInt(id)]);
+    if (raw == null) break;
+    agents.push(mapAgent(raw));
+  }
+
+  // Collect every claim id: agent-indexed lists (paginated) + the pending queue.
+  const claimIds = new Set<number>();
+  for (const a of agents) {
+    for (let offset = 0, page = 0; page < 100; page++, offset += 50) {
+      const raw = await tryRead<unknown>('get_agent_claims', [BigInt(a.id), BigInt(offset), 50n]);
+      const ids = parseIds(raw);
+      for (const id of ids) claimIds.add(id);
+      if (ids.length < 50) break;
+    }
+  }
+  const pendingRaw = await tryRead<unknown>('get_pending_queue', [50n]);
+  for (const id of parseIds(pendingRaw)) claimIds.add(id);
+
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const claims: Claim[] = [];
+  for (const id of [...claimIds].sort((a, b) => b - a)) {
+    const raw = await tryRead<{ agent_id?: unknown }>('get_claim', [BigInt(id)]);
+    if (raw == null) continue;
+    const agentId = toNum((raw as { agent_id?: unknown }).agent_id);
+    claims.push(mapClaim(raw, byId.get(agentId)?.name ?? `Agent #${agentId}`));
+  }
+
+  const disputes: Dispute[] = [];
+  for (let id = 1; id <= MAX_IDS; id++) {
+    const raw = await tryRead<unknown>('get_dispute', [BigInt(id)]);
+    if (raw == null) break;
+    disputes.push(mapDispute(raw));
+  }
+
+  return { agents, claims, disputes };
+}
+
+/* ------------------------------------------------------------------ wallet */
+
+/** Silently read already-authorized accounts (no popup). */
+export async function getAccounts(): Promise<string[]> {
+  const eth = window.ethereum;
+  if (!eth) return [];
+  try {
+    return (await eth.request({ method: 'eth_accounts' })) as string[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Connect the injected wallet: switch to StudioNet, install/request the GenLayer
+ * snap (needed to interpret contract calls), then read the active account.
+ */
+export async function connectWallet(): Promise<string> {
+  const eth = window.ethereum;
+  if (!eth) throw new Error('MetaMask is not installed. Install it to send transactions.');
+  await client.connect('studionet', 'npm');
+  const accounts = (await eth.request({ method: 'eth_requestAccounts' })) as string[];
+  if (!accounts?.length) throw new Error('No account returned by wallet.');
+  return accounts[0];
+}
 
 export function shortAddr(addr: string): string {
   return addr.length > 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 }
 
-export interface Eip1193Provider {
-  request(args: { method: string; params?: unknown[] | object }): Promise<unknown>;
-  on?(event: string, handler: (...args: never[]) => void): void;
-  removeListener?(event: string, handler: (...args: never[]) => void): void;
-}
+/* ------------------------------------------------------------------ writes */
 
-declare global {
-  interface Window {
-    ethereum?: Eip1193Provider;
-  }
-}
-
-export interface NetworkInfo {
-  chain: 'GenLayer Studionet';
-  chainId: number;
-  rpc: string;
-  explorer: string;
-  contract: string;
-  contractId: string;
-  connected: boolean;
-}
-
-export const NETWORK: NetworkInfo = {
-  chain: 'GenLayer Studionet',
-  chainId: 42069,
-  rpc: 'https://studio.genlayer.com:8545',
-  explorer: 'https://explorer-studio.genlayer.com',
-  contract: '0x9c1F2b7Ae4D38e5C20A7fB31dE0a44C5B6e91A2f',
-  contractId: CONTRACT_ID,
-  connected: true,
-};
-
-export interface TxReceipt {
-  ok: boolean;
-  tx: string;
-  block: number;
+/** Send a real transaction through the connected wallet. Returns the tx hash. */
+export async function write(
+  functionName: string,
+  args: unknown[],
+  value: Gen = 0n,
+  account?: string | null,
+): Promise<string> {
+  const hash = await client.writeContract({
+    /* genlayer-js routes signing through window.ethereum when account is an address */
+    account: (account ?? undefined) as never,
+    address: ADDR,
+    functionName,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    args: args as any,
+    value,
+  });
+  return String(hash);
 }
 
 export const sdk = {
-  /* ---- views ---- */
+  loadRegistry,
+  getAccounts,
+  connectWallet,
+  shortAddr,
 
-  async getAgents(): Promise<Agent[]> {
-    await delay(90);
-    return BASE_AGENTS.map((a) => ({ ...a }));
+  registerAgent: (
+    name: string, policy: string, description: string,
+    liabilities: [Gen, Gen, Gen, Gen], account?: string | null,
+  ) => write('register_agent', [name, policy, description, ...liabilities], 0n, account),
+
+  /** bond_agent is payable: the GEN is sent as the tx value. */
+  bondAgent: (agentId: number, amount: Gen, account?: string | null) =>
+    write('bond_agent', [BigInt(agentId)], amount, account),
+
+  setAgentStatus: (agentId: number, status: AgentStatus, account?: string | null) => {
+    const fn = status === 'active' ? 'resume_agent' : status === 'paused' ? 'pause_agent' : 'delist_agent';
+    return write(fn, [BigInt(agentId)], 0n, account);
   },
 
-  async getClaims(): Promise<Claim[]> {
-    await delay(120);
-    return BASE_CLAIMS.map((c) => ({ ...c }));
-  },
+  fileClaim: (
+    input: { agentId: number; title: string; description: string; evidence: string; impact: string; severity: Severity },
+    account?: string | null,
+  ) => write('file_claim', [
+    BigInt(input.agentId), input.title, input.description, input.evidence, input.impact, input.severity,
+  ], 0n, account),
 
-  async getDisputes(): Promise<Dispute[]> {
-    await delay(80);
-    return BASE_DISPUTES.map((d) => ({ ...d }));
-  },
+  /** The only nondeterministic method — runs full validator consensus (slow). */
+  auditClaim: (claimId: number, account?: string | null) =>
+    write('audit_claim', [BigInt(claimId)], 0n, account),
 
-  async getActivity(): Promise<ActivityEvent[]> {
-    await delay(60);
-    return BASE_ACTIVITY.map((e) => ({ ...e }));
-  },
+  claimPayout: (claimId: number, account?: string | null) =>
+    write('claim_payout', [BigInt(claimId)], 0n, account),
 
-  async getScenario(scenario: Scenario) {
-    await delay(140);
-    return buildScenario(scenario);
-  },
+  raiseDispute: (claimId: number, reason: string, account?: string | null) =>
+    write('raise_dispute', [BigInt(claimId), reason], 0n, account),
 
-  /** Silently read already-authorized accounts (no popup). */
-  async getAccounts(): Promise<string[]> {
-    const eth = window.ethereum;
-    if (!eth) return [];
-    try {
-      return (await eth.request({ method: 'eth_accounts' })) as string[];
-    } catch {
-      return [];
-    }
-  },
+  resolveDispute: (disputeId: number, outcome: Decision, severity: Severity, account?: string | null) =>
+    write('resolve_dispute', [BigInt(disputeId), outcome, severity], 0n, account),
 
-  /**
-   * Connect a real injected wallet (Rabby / MetaMask / …) — opens the
-   * extension popup via eth_requestAccounts. Falls back to a demo address
-   * when no wallet extension is installed.
-   */
-  async connectWallet(): Promise<string> {
-    const eth = window.ethereum;
-    if (!eth) {
-      await delay(300);
-      return DEMO_ADDRESS;
-    }
-    const accounts = (await eth.request({ method: 'eth_requestAccounts' })) as string[];
-    if (!accounts?.length) throw new Error('No account returned by wallet');
-    return shortAddr(accounts[0]);
-  },
-
-  async disconnectWallet(): Promise<void> {
-    const eth = window.ethereum;
-    if (!eth) return;
-    try {
-      await eth.request({
-        method: 'wallet_revokePermissions',
-        params: [{ eth_accounts: {} }],
-      });
-    } catch {
-      /* wallets that can't revoke just forget locally */
-    }
-  },
-
-  /* ---- writes (deterministic, staged locally) ---- */
-
-  async registerAgent(name: string): Promise<{ ok: boolean; aid: number }> {
-    await delay(300);
-    void name;
-    return { ok: true, aid: 7 };
-  },
-
-  async bondAgent(agentId: number, amount: Gen): Promise<TxReceipt> {
-    await delay(350);
-    void agentId;
-    void amount;
-    return { ok: true, tx: '0x21ac…8f09', block: 4118405 };
-  },
-
-  async setAgentStatus(agentId: number, status: Agent['status']): Promise<TxReceipt> {
-    await delay(250);
-    void agentId;
-    void status;
-    return { ok: true, tx: '0x77b1…2c5d', block: 4118406 };
-  },
-
-  async fileClaim(agentId: number, title: string): Promise<{ ok: boolean; cid: number }> {
-    await delay(400);
-    void agentId;
-    void title;
-    return { ok: true, cid: 9 };
-  },
-
-  /** The only nondeterministic method: LLM audit + deterministic settlement. */
-  async auditClaim(claimId: number): Promise<TxReceipt & { decision: string }> {
-    await delay(900);
-    void claimId;
-    return { ok: true, tx: '0x8f72…91ac', block: 4118392, decision: 'valid' };
-  },
-
-  async claimPayout(claimId: number): Promise<TxReceipt> {
-    await delay(400);
-    void claimId;
-    return { ok: true, tx: '0x5c19…7ab3', block: 4118393 };
-  },
-
-  async raiseDispute(claimId: number, reason: string): Promise<{ ok: boolean; did: number }> {
-    await delay(350);
-    void claimId;
-    void reason;
-    return { ok: true, did: 3 };
-  },
-
-  async resolveDispute(disputeId: number, outcome: string, severity: Severity): Promise<TxReceipt> {
-    await delay(450);
-    void disputeId;
-    void outcome;
-    void severity;
-    return { ok: true, tx: '0x9a3e…1d77', block: 4118410 };
-  },
+  requeueDisputed: (claimId: number, account?: string | null) =>
+    write('requeue_disputed', [BigInt(claimId)], 0n, account),
 };

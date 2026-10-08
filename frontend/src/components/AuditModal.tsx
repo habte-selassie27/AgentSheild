@@ -30,8 +30,8 @@ export function AuditModal({ open, onClose }: { open: boolean; onClose(): void }
             </h2>
             <p className="text-[12.5px] text-sub mt-0.5">
               {done
-                ? 'Consensus reached — settlement executed deterministically from the liability table.'
-                : `Claim #${s.auditClaimId} · validators re-run the same prompt independently.`}
+                ? 'Transaction submitted — the contract writes the decision, tier and payout on chain.'
+                : `CL-${String(s.auditClaimId ?? 0).padStart(3, '0')} · validators re-run the same prompt independently.`}
             </p>
           </div>
           <button onClick={onClose} className="ml-auto rounded-md p-1.5 text-mute hover:text-ink hover:bg-elevated" aria-label="Close">
@@ -68,9 +68,9 @@ export function AuditModal({ open, onClose }: { open: boolean; onClose(): void }
         </ol>
 
         <div className="mt-4 flex items-center gap-2 border-t border-edge pt-3.5">
-          <p className="text-[11px] text-mute font-mono">prompt_comparative · 5 validators · studionet</p>
+          <p className="text-[11px] text-mute font-mono">prompt_comparative · studionet</p>
           <button onClick={onClose} className={clsx('ml-auto', done ? 'btn-primary' : 'btn-ghost')}>
-            {done ? 'Close' : 'Run in background'}
+            {done ? 'Close' : 'Keep open'}
           </button>
         </div>
       </div>

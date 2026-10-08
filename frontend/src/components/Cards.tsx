@@ -1,9 +1,8 @@
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
-import { ArrowUpRight, Radar } from 'lucide-react';
+import { ArrowUpRight, Radar, ScanLine } from 'lucide-react';
 import { useShield } from '../lib/shield';
-import { CLAIM_TREND } from '../lib/mock';
-import type { ActivityEvent, AuditRound, Claim, Severity } from '../lib/types';
+import type { ActivityEvent, Claim } from '../lib/types';
 import { formatGen } from '../lib/types';
 import { StatusBadge } from './StatusBadge';
 
@@ -23,15 +22,14 @@ const POSTURE_TONE: Record<string, { text: string; ring: string }> = {
   NOMINAL: { text: 'text-ok', ring: 'stroke-ok' },
   SETTLED: { text: 'text-accent', ring: 'stroke-accent' },
   DISPUTED: { text: 'text-high', ring: 'stroke-high' },
-  OFFLINE: { text: 'text-mute', ring: 'stroke-mute' },
 };
 
 export function BondGauge() {
   const s = useShield();
-  const tone = POSTURE_TONE[s.posture] ?? POSTURE_TONE.OFFLINE;
-  const totalBond = s.agents.reduce((n, a) => n + a.bond, 0n);
+  const tone = POSTURE_TONE[s.posture] ?? POSTURE_TONE.NOMINAL;
+  const totalBond = s.totalBond;
   const totalExposure = s.agents.reduce((n, a) => n + a.liabilities.critical, 0n);
-  const pct = totalExposure > 0n ? Number((totalBond * 100n) / totalExposure) : 0;
+  const pctRaw = totalExposure > 0n ? Number((totalBond * 100n) / totalExposure) : 0;
   const R = 52;
   const C = 2 * Math.PI * R;
 
@@ -43,13 +41,13 @@ export function BondGauge() {
           <circle cx="70" cy="70" r={R} fill="none" stroke="#232935" strokeWidth="10" />
           <circle
             cx="70" cy="70" r={R} fill="none" strokeWidth="10" strokeLinecap="round"
-            strokeDasharray={`${Math.min(pct, 100) * C / 100} ${C}`}
+            strokeDasharray={`${Math.min(pctRaw, 100) * C / 100} ${C}`}
             className={clsx(tone.ring, 'transition-all duration-700')}
           />
         </svg>
         <div className="absolute inset-0 grid place-items-center px-6">
           <div className="leading-tight">
-            <p className={clsx('text-[19px] font-extrabold tracking-tight', tone.text)}>{pct}%</p>
+            <p className={clsx('text-[19px] font-extrabold tracking-tight', tone.text)}>{pctRaw > 999 ? '>999' : pctRaw}%</p>
             <p className="text-[10px] text-mute font-mono whitespace-nowrap">of critical tiers</p>
           </div>
         </div>
@@ -85,7 +83,7 @@ export function Pipeline({ compact }: { compact?: boolean }) {
     <div className="panel p-4">
       <div className="flex items-center justify-between mb-3">
         <p className="meta">Claim lifecycle</p>
-        <p className="text-[11px] font-mono text-mute">live · stage {activeIdx + 1}/5</p>
+        <p className="text-[11px] font-mono text-mute">stage {activeIdx + 1}/5</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
         {PIPELINE.map((p, i) => {
@@ -106,11 +104,6 @@ export function Pipeline({ compact }: { compact?: boolean }) {
                 <p className={clsx('text-[11px] font-extrabold tracking-[0.12em]', active ? 'text-accent' : done ? 'text-ok' : 'text-sub')}>{p.key}</p>
               </div>
               {!compact && <p className="text-[10.5px] text-mute mt-1 leading-snug">{p.note}</p>}
-              {!compact && i < PIPELINE.length - 1 && (
-                <svg className="hidden sm:block absolute -right-[7px] top-1/2 -translate-y-1/2 z-10" width="14" height="8" viewBox="0 0 14 8" aria-hidden>
-                  <path d="M0 4h11M8 1l3 3-3 3" fill="none" stroke={active ? '#2DD4BF' : '#5F6877'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={active ? 'flow-line' : ''} />
-                </svg>
-              )}
             </div>
           );
         })}
@@ -119,56 +112,49 @@ export function Pipeline({ compact }: { compact?: boolean }) {
   );
 }
 
-/* ---------- Claims trend (area sparkline) ---------- */
+/* ---------- Claims by status (real distribution) ---------- */
 
-export function ClaimsTrend() {
-  const data = CLAIM_TREND;
-  const w = 560;
-  const h = 130;
-  const max = Math.max(...data, 1);
-  const pts = data.map((v, i) => [(i / (data.length - 1)) * w, h - (v / max) * (h - 14) - 6] as const);
-  const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-  const area = `${line} L${w},${h} L0,${h} Z`;
-  const total = data.reduce((n, v) => n + v, 0);
+const STATUS_ORDER = ['pending', 'valid', 'paid', 'invalid', 'duplicate', 'disputed'] as const;
+const STATUS_TONE: Record<string, string> = {
+  pending: 'bg-info', valid: 'bg-ok', paid: 'bg-accent', invalid: 'bg-mute', duplicate: 'bg-sub', disputed: 'bg-high',
+};
+
+export function ClaimsBreakdown() {
+  const s = useShield();
+  const counts = STATUS_ORDER.map((st) => ({ st, n: s.claims.filter((c) => c.status === st).length }));
+  const total = s.claims.length;
 
   return (
     <div className="panel p-4">
       <div className="flex items-start justify-between mb-2">
         <div>
-          <p className="meta">Claims filed · 24h</p>
+          <p className="meta">Claims by status</p>
           <p className="text-[24px] font-extrabold font-mono mt-1">{total}</p>
         </div>
-        <div className="text-right">
-          <p className="text-[11px] text-mute">peak hour</p>
-          <p className="text-[13px] font-bold font-mono text-warn">{max} / h</p>
-        </div>
+        <p className="text-[11px] text-mute text-right max-w-[160px] leading-snug">
+          live counts from <span className="font-mono">get_claim</span>
+        </p>
       </div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-[130px]" preserveAspectRatio="none" aria-label="Claims filed over the last 24 hours">
-        <defs>
-          <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#2DD4BF" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#2DD4BF" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0.25, 0.5, 0.75].map((f) => (
-          <line key={f} x1="0" y1={h * f} x2={w} y2={h * f} stroke="#232935" strokeWidth="1" />
+      <div className="flex h-2.5 rounded-full overflow-hidden bg-elevated mt-2">
+        {counts.filter((c) => c.n > 0).map((c) => (
+          <div key={c.st} style={{ width: `${(c.n / Math.max(total, 1)) * 100}%` }} className={STATUS_TONE[c.st]} title={`${c.st}: ${c.n}`} />
         ))}
-        <path d={area} fill="url(#cg)" />
-        <path d={line} fill="none" stroke="#2DD4BF" strokeWidth="2" strokeLinejoin="round" />
-        <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="3.5" fill="#2DD4BF" />
-      </svg>
-      <div className="flex justify-between text-[10px] font-mono text-mute mt-1">
-        <span>-24h</span><span>-12h</span><span>now</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 mt-3 text-[11.5px]">
+        {counts.map((c) => (
+          <span key={c.st} className="flex items-center gap-1.5">
+            <span className={clsx('h-2 w-2 rounded-full', STATUS_TONE[c.st])} />
+            <span className="capitalize text-sub">{c.st}</span>
+            <span className="ml-auto font-mono text-mute">{c.n}</span>
+          </span>
+        ))}
       </div>
     </div>
   );
 }
 
-/* ---------- Activity feed ---------- */
+/* ---------- Activity feed (derived from live claims/disputes) ---------- */
 
-const SEV_DOT: Record<Severity, string> = {
-  critical: 'bg-crit', high: 'bg-high', medium: 'bg-warn', low: 'bg-info', info: 'bg-mute',
-};
 const ACT_SEV_DOT: Record<ActivityEvent['severity'], string> = {
   CRITICAL: 'bg-crit', HIGH: 'bg-high', MEDIUM: 'bg-warn', LOW: 'bg-info', INFO: 'bg-mute',
 };
@@ -179,8 +165,8 @@ export function ActivityFeed({ compact }: { compact?: boolean }) {
   return (
     <div className="panel p-4">
       <div className="flex items-center justify-between mb-3">
-        <p className="meta">Registry activity</p>
-        {!compact && <span className="text-[11px] font-mono text-mute">{s.activity.length} events</span>}
+        <p className="meta">Registry state</p>
+        {!compact && <span className="text-[11px] font-mono text-mute">{s.activity.length} records</span>}
         {compact && <Link to="/activity" className="text-[11px] font-bold text-accent hover:underline">Full log →</Link>}
       </div>
       <ul className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
@@ -189,63 +175,74 @@ export function ActivityFeed({ compact }: { compact?: boolean }) {
             <span className={clsx('mt-1.5 h-1.5 w-1.5 rounded-full shrink-0', ACT_SEV_DOT[e.severity])} />
             <div className="min-w-0 flex-1">
               <p className="text-[12.5px] font-semibold leading-snug truncate">{e.title}</p>
-              <p className="text-[11px] text-mute truncate">
-                <span className="font-mono">{e.time}</span> · {e.detail}
-              </p>
+              <p className="text-[11px] text-mute truncate">{e.detail}</p>
             </div>
             <span className="text-[9.5px] font-bold uppercase tracking-wider text-mute shrink-0 mt-0.5">{e.kind}</span>
           </li>
         ))}
+        {!items.length && <li className="text-[12px] text-mute px-1 py-6 text-center">No claims on chain yet.</li>}
       </ul>
     </div>
   );
 }
 
-/* ---------- Validator consensus panel ---------- */
+/* ---------- On-chain audit result (real fields only) ---------- */
 
-const DECISION_TONE: Record<string, string> = {
-  valid: 'bg-ok', invalid: 'bg-mute', duplicate: 'bg-info',
-};
-const DECISION_TEXT: Record<string, string> = {
-  valid: 'text-ok', invalid: 'text-mute', duplicate: 'text-info',
-};
+const DECISION_TONE: Record<string, string> = { valid: 'bg-ok', invalid: 'bg-mute', duplicate: 'bg-info' };
+const DECISION_TEXT: Record<string, string> = { valid: 'text-ok', invalid: 'text-mute', duplicate: 'text-info' };
 
-export function ValidatorConsensus({ audit }: { audit: AuditRound }) {
-  const counts = audit.validators.reduce<Record<string, number>>((acc, v) => ({ ...acc, [v.decision]: (acc[v.decision] ?? 0) + 1 }), {});
+export function AuditResult({ claim }: { claim: Claim }) {
+  const decided = claim.status !== 'pending' && claim.severityAi !== null;
   return (
     <div className="panel p-4">
       <div className="flex items-center justify-between mb-3">
-        <p className="meta">Validator audit round</p>
-        <span className="text-[11px] font-mono text-mute">{audit.validators.length} nodes</span>
+        <p className="meta">On-chain audit result</p>
+        <StatusBadge status={claim.status} size="sm" />
       </div>
-      <div className="flex h-2.5 rounded-full overflow-hidden bg-elevated mb-3">
-        {Object.entries(counts).map(([k, n]) => (
-          <div key={k} style={{ width: `${(n / audit.validators.length) * 100}%` }} className={clsx(DECISION_TONE[k], 'border-r border-void last:border-0')} title={`${k}: ${n}`} />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-3">
-        {Object.entries(counts).map(([k, n]) => (
-          <span key={k} className="flex items-center gap-1.5">
-            <span className={clsx('h-2 w-2 rounded-full', DECISION_TONE[k])} />
-            <span className={clsx('font-bold uppercase', DECISION_TEXT[k])}>{k}</span>
-            <span className="text-mute font-mono">{n}/{audit.validators.length}</span>
-          </span>
-        ))}
-      </div>
-      <p className="text-[11px] text-mute font-mono border-t border-edge pt-2.5 mb-2">principle: {audit.principle}</p>
-      <ul className="space-y-2">
-        {audit.validators.map((v) => (
-          <li key={v.node} className="flex items-start gap-2 text-[12px]">
-            <span className={clsx('chip shrink-0 uppercase', DECISION_TEXT[v.decision])}>{v.decision}</span>
-            <div className="min-w-0">
-              <p className="font-mono text-[11.5px] text-sub">
-                {v.node} · {v.region} · {v.severity} · {formatGen(v.reward)} GEN · {v.latencyMs}ms
-              </p>
-              <p className="text-[11.5px] text-mute leading-snug">{v.reason}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
+
+      {!decided ? (
+        <p className="text-[13px] text-sub leading-relaxed">
+          No audit round recorded for CL-{String(claim.id).padStart(3, '0')}. <code className="font-mono text-accent">audit_claim()</code>{' '}
+          copies the agent and claim into validator memory, then validators re-run the same prompt under{' '}
+          <code className="font-mono text-accent">prompt_comparative</code>.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-3">
+            <span className="flex items-center gap-1.5">
+              <span className={clsx('h-2 w-2 rounded-full', DECISION_TONE[claim.status] ?? 'bg-mute')} />
+              <span className={clsx('font-bold uppercase', DECISION_TEXT[claim.status] ?? 'text-sub')}>{claim.status}</span>
+            </span>
+            <span className="text-mute">severity → <span className="font-mono text-sub">{claim.severityAi}</span></span>
+            <span className="text-mute">payout <span className="font-mono text-sub">{formatGen(claim.payout)} GEN</span></span>
+          </div>
+          <ul className="space-y-2 text-[12px] border-t border-edge pt-2.5">
+            <li className="flex justify-between gap-3">
+              <span className="text-mute shrink-0">Claimed severity</span>
+              <span className="font-mono text-sub">{claim.severityClaimed}</span>
+            </li>
+            <li className="flex justify-between gap-3">
+              <span className="text-mute shrink-0">AI severity</span>
+              <span className="font-mono text-sub">{claim.severityAi}</span>
+            </li>
+            {claim.duplicateOf > 0 && (
+              <li className="flex justify-between gap-3">
+                <span className="text-mute shrink-0">Duplicate of</span>
+                <span className="font-mono text-sub">#{claim.duplicateOf}</span>
+              </li>
+            )}
+            <li className="flex justify-between gap-3">
+              <span className="text-mute shrink-0">Tier payout (bond)</span>
+              <span className="font-mono text-sub">{formatGen(claim.payout)} GEN</span>
+            </li>
+          </ul>
+          {claim.auditReason && (
+            <p className="text-[11.5px] text-mute leading-snug mt-2.5 border-t border-edge pt-2.5">
+              <span className="text-sub font-semibold">Reason (on-chain): </span>{claim.auditReason}
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -274,8 +271,7 @@ export function ClaimCard({ claim }: { claim: Claim }) {
       </div>
       <p className="text-[14px] font-semibold mt-1.5 leading-snug">{claim.title}</p>
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-[11.5px] text-mute">
-        <span className="font-mono">{claim.agentName}</span>
-        <span className="font-mono">{claim.submittedAt}</span>
+        <span className="font-mono">agent #{claim.agentId} {claim.agentName}</span>
         <span className="ml-auto font-mono">{formatGen(claim.payout)} GEN payout</span>
       </div>
     </Link>
@@ -310,17 +306,18 @@ export function TopBonds({ limit = 5 }: { limit?: number }) {
             </div>
           </li>
         ))}
+        {!top.length && <li className="text-[12px] text-mute text-center py-4">No agents registered on chain.</li>}
       </ul>
     </div>
   );
 }
 
-/* ---------- Registry scanner (decorative) ---------- */
+/* ---------- Registry scanner ---------- */
 
 export function ScannerCard() {
   const s = useShield();
-  const tone = s.posture === 'DISPUTED' ? '#FF8A5B' : s.posture === 'SETTLED' ? '#2DD4BF' : '#2DD4BF';
-  const pending = s.claims.filter((c) => c.status === 'pending').length;
+  const tone = s.posture === 'DISPUTED' ? '#FF8A5B' : '#2DD4BF';
+  const pending = s.pending.length;
   return (
     <div className="panel p-4 flex items-center gap-4">
       <svg width="96" height="96" viewBox="0 0 100 100" className="shrink-0" aria-hidden>
@@ -340,10 +337,12 @@ export function ScannerCard() {
           {s.agents.length} registered agents, {s.claims.length} claims on record, {pending} waiting for
           audit_claim(). Every write is deterministic except the audit itself.
         </p>
-        <p className="text-[11px] font-mono text-mute mt-1.5">fee 5% · ≤ 10% cap · studionet</p>
+        <p className="text-[11px] font-mono text-mute mt-1.5 flex items-center gap-1">
+          <ScanLine size={11} /> live reads · {s.lastCheckSec}s ago
+        </p>
       </div>
     </div>
   );
 }
 
-export { SEV_DOT };
+export { STATUS_ORDER };

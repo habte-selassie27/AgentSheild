@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Bot, Coins, FileText, Gavel, Shield, Scale, Waypoints, Wallet } from 'lucide-react';
 import { Pipeline } from '../components/Cards';
 import { AuditModal } from '../components/AuditModal';
-import { useShield } from '../lib/shield';
+import { NETWORK, useShield } from '../lib/shield';
 import { formatGen } from '../lib/types';
 
 const FEATURES = [
@@ -39,6 +39,7 @@ export function Landing() {
   const pending = s.claims.filter((c) => c.status === 'pending');
   const next = pending[0];
   const totalBond = s.agents.reduce((n, a) => n + a.bond, 0n);
+  const paidCount = s.claims.filter((c) => c.status === 'paid').length;
 
   return (
     <div className="min-h-screen bg-void text-ink">
@@ -89,7 +90,7 @@ export function Landing() {
                 { v: String(s.agents.length), l: 'agents registered' },
                 { v: `${formatGen(totalBond)}`, l: 'GEN bonded' },
                 { v: String(s.claims.length), l: 'claims on record' },
-                { v: '5%', l: 'protocol fee (≤10%)' },
+                { v: String(paidCount), l: 'claims paid out' },
               ].map((x) => (
                 <div key={x.l} className="panel px-3 py-2.5">
                   <p className="text-[19px] font-extrabold font-mono">{x.v}</p>
@@ -151,23 +152,25 @@ export function Landing() {
       <section className="max-w-[1180px] mx-auto px-5 py-14">
         <div className="panel p-6 lg:p-8 flex flex-col lg:flex-row gap-6 items-start">
           <div className="min-w-0 flex-1">
-            <span className="chip border-info/40 bg-info/10 text-info">PENDING AUDIT · CL-{String(next?.id ?? 7).padStart(3, '0')}</span>
+            <span className="chip border-info/40 bg-info/10 text-info">
+              {next ? `PENDING AUDIT · CL-${String(next.id).padStart(3, '0')}` : 'LIVE REGISTRY'}
+            </span>
             <h3 className="text-[20px] font-extrabold tracking-tight mt-3">
-              {next?.title ?? 'Unauthorized transfer executed without consent'}
+              {next?.title ?? 'No claims awaiting audit right now'}
             </h3>
             <p className="text-[13.5px] text-sub leading-relaxed mt-2 max-w-[640px]">
               {next?.description ??
-                'Claimant states the agent broadcast a transfer outside the approved batch window. Evidence is sealed on-chain; validators are about to re-run the audit prompt independently.'}
+                'Every claim on the registry has reached a final decision. File a new claim to run another consensus round.'}
             </p>
             <div className="mt-4 flex flex-wrap gap-2.5">
-              <Link to={next ? `/claims/${next.id}` : '/claims'} className="btn-primary">Inspect claim</Link>
+              <Link to={next ? `/claims/${next.id}` : '/claims'} className="btn-primary">{next ? 'Inspect claim' : 'View claims'}</Link>
               <Link to="/audit" className="btn-ghost">See audit queue <Waypoints size={14} /></Link>
             </div>
           </div>
           <div className="w-full lg:w-[300px] shrink-0 space-y-2.5">
             {[
               { icon: FileText, k: 'Evidence', v: next?.evidence ? 'sealed on-chain' : 'sealed on-chain' },
-              { icon: Gavel, k: 'Audit', v: '5 validators · same prompt' },
+              { icon: Gavel, k: 'Audit', v: 'validators · same prompt' },
               { icon: Coins, k: 'Liability tier', v: `${formatGen(next?.payout ?? 0n)} GEN max` },
               { icon: Shield, k: 'Enforcement', v: 'auto-pay from bond' },
             ].map((r) => (
@@ -187,7 +190,7 @@ export function Landing() {
           <span className="flex items-center gap-2">
             <Shield size={13} className="text-accent" /> AgentSheild — built on GenLayer
           </span>
-          <span className="font-mono">agentsheild.registry.studionet</span>
+          <span className="font-mono">{NETWORK.contract.slice(0, 12)}… · {NETWORK.chain}</span>
           <span className="ml-auto">Settlement is on-chain. This console is read + trigger only.</span>
         </div>
       </footer>

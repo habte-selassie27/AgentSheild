@@ -1,10 +1,11 @@
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import {
-  Activity as ActivityIcon, Bot, FileText, Gavel, Home, Lock, RefreshCw, Scale, ScrollText, Shield, ShieldAlert,
+  Activity as ActivityIcon, Bot, ExternalLink, FileText, Gavel, Home, Lock, RefreshCw, Scale, ScrollText, Shield, ShieldAlert,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
-import { useShield } from '../lib/shield';
+import { NETWORK, useShield } from '../lib/shield';
+import { explorerAddress } from '../lib/genlayer';
 
 type NavItem = { group: string } | { to: string; label: string; icon: LucideIcon };
 
@@ -20,38 +21,11 @@ const nav: NavItem[] = [
   { to: '/activity', label: 'Activity', icon: ActivityIcon },
 ];
 
-const SCENARIOS = [
-  { id: 'queue', label: 'QUEUE', color: 'text-info', ring: 'border-info/40' },
-  { id: 'settled', label: 'SETTLED', color: 'text-accent', ring: 'border-accent/40' },
-  { id: 'disputed', label: 'DISPUTED', color: 'text-high', ring: 'border-high/50' },
-] as const;
-
-function ScenarioSwitcher({ className }: { className?: string }) {
-  const s = useShield();
-  return (
-    <div className={clsx('items-center rounded-lg border border-edge bg-panel p-0.5', className)} role="group" aria-label="Demo scenario">
-      {SCENARIOS.map((sc) => (
-        <button
-          key={sc.id}
-          onClick={() => s.simulate(sc.id)}
-          title={`Show ${sc.label.toLowerCase()} registry state`}
-          className={clsx(
-            'rounded-md px-2 py-1 text-[10px] font-bold tracking-wider transition-colors',
-            s.scenario === sc.id ? clsx('border', sc.ring, sc.color, 'bg-elevated') : 'text-mute hover:text-sub'
-          )}
-        >
-          {sc.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function Shell({ children }: { children: React.ReactNode }) {
   const s = useShield();
   const loc = useLocation();
-  const pending = s.claims.filter((c) => c.status === 'pending').length;
-  const openDisputes = s.disputes.filter((d) => !d.resolved).length;
+  const pending = s.pending.length;
+  const openDisputes = s.openDisputes.length;
   const banner = s.status === 'DISPUTE_OPEN' || (s.status === 'AUDITS_PENDING' && pending > 0);
 
   return (
@@ -100,13 +74,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="border-t border-edge p-4 space-y-3">
-          <div className="flex items-center gap-2 text-[11px]">
-            <span className={clsx('h-2 w-2 rounded-full', s.status === 'OFFLINE' ? 'bg-mute' : 'bg-ok dot-safe')} />
-            <div>
-              <p className="font-mono font-semibold text-[10px] tracking-wider">GENLAYER STUDIONET</p>
-              <p className="text-mute">{s.status === 'OFFLINE' ? 'Disconnected' : 'Contract synced'}</p>
+          <a
+            href={explorerAddress(NETWORK.contract)}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 text-[11px] group"
+          >
+            <span className={clsx('h-2 w-2 rounded-full', s.error ? 'bg-warn' : 'bg-ok dot-safe')} />
+            <div className="min-w-0">
+              <p className="font-mono font-semibold text-[10px] tracking-wider">{NETWORK.chain.toUpperCase()}</p>
+              <p className="text-mute truncate group-hover:text-sub">
+                {s.error ? 'Read error' : s.loading ? 'Syncing…' : 'Live contract'}
+              </p>
             </div>
-          </div>
+            <ExternalLink size={11} className="ml-auto text-mute group-hover:text-accent shrink-0" />
+          </a>
+          <p className="font-mono text-[9.5px] text-mute break-all">{NETWORK.contract}</p>
         </div>
       </aside>
 
@@ -125,24 +108,28 @@ export function Shell({ children }: { children: React.ReactNode }) {
               TESTNET
             </span>
 
-            {/* Scenario switcher (desktop) */}
-            <ScenarioSwitcher className="ml-auto hidden md:flex" />
-
-            <span className="hidden xl:block font-mono text-[11px] text-mute">Updated {s.lastCheckSec}s ago</span>
-            <button onClick={() => void s.refresh()} title="Refresh registry state" className="rounded-lg border border-edge bg-panel p-2 text-sub hover:text-ink transition-colors">
+            <span className="ml-auto hidden xl:block font-mono text-[11px] text-mute">updated {s.lastCheckSec}s ago</span>
+            <button onClick={s.refresh} title="Reload registry state from chain" className="rounded-lg border border-edge bg-panel p-2 text-sub hover:text-ink transition-colors">
               <RefreshCw size={14} className={clsx(s.loading && 'animate-spin')} />
             </button>
             <label className="hidden sm:flex items-center gap-1.5 text-[11px] text-mute cursor-pointer">
               <input type="checkbox" checked={s.autoRefresh} onChange={(e) => s.setAutoRefresh(e.target.checked)} className="accent-[#2DD4BF]" /> Auto
             </label>
-            {s.wallet ? (
-              <button onClick={s.disconnectWallet} className="rounded-lg border border-edge bg-elevated px-3 py-1.5 font-mono text-[11px] hover:border-accent/50" title="Disconnect">
-                {s.wallet}
+            {s.walletLabel ? (
+              <button onClick={s.disconnectWallet} className="rounded-lg border border-edge bg-elevated px-3 py-1.5 font-mono text-[11px] hover:border-accent/50" title="Disconnect (local only)">
+                {s.walletLabel}
               </button>
             ) : (
-              <button onClick={s.connectWallet} className="rounded-lg bg-ink px-3 sm:px-3.5 py-1.5 text-[12px] font-bold text-void hover:bg-white transition-colors whitespace-nowrap">
-                <span className="hidden sm:inline">Connect Wallet</span>
-                <span className="sm:hidden">Connect</span>
+              <button onClick={s.connectWallet} disabled={s.connecting} className="rounded-lg bg-ink px-3 sm:px-3.5 py-1.5 text-[12px] font-bold text-void hover:bg-white transition-colors whitespace-nowrap disabled:opacity-60">
+                {s.connecting ? (
+                  <span className="hidden sm:inline">Connecting…</span>
+                ) : (
+                  <>
+                    <span className="hidden sm:inline">Connect Wallet</span>
+                    <span className="sm:hidden">Connect</span>
+                  </>
+                )}
+                {s.connecting && <span className="sm:hidden">…</span>}
               </button>
             )}
           </div>
@@ -167,9 +154,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </div>
           )}
 
-          {/* mobile: scenario switcher + nav */}
+          {/* notice / error strip */}
+          {(s.notice || s.error) && (
+            <div className={clsx('border-t', s.error ? 'border-warn/40 bg-warn/10' : 'border-edge bg-base/60')}>
+              <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-1.5 flex items-center gap-3 text-[11.5px]">
+                <span className={clsx('truncate', s.error ? 'text-warn' : 'text-sub')}>{s.error ?? s.notice}</span>
+                <button onClick={s.clearNotice} className="ml-auto text-mute hover:text-ink shrink-0">dismiss</button>
+              </div>
+            </div>
+          )}
+
+          {/* mobile nav */}
           <div className="lg:hidden flex items-center gap-2 px-3 pb-2">
-            <ScenarioSwitcher className="flex md:hidden shrink-0" />
             <nav className="flex gap-1 overflow-x-auto min-w-0" aria-label="Mobile">
               {nav
                 .filter((n): n is Extract<NavItem, { to: string }> => 'to' in n)
@@ -188,16 +184,29 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 w-full max-w-[1440px] mx-auto px-4 lg:px-8 py-6 pb-16">{children}</main>
+        <main className="flex-1 w-full max-w-[1440px] mx-auto px-4 lg:px-8 py-6 pb-16">
+          {s.loading && !s.agents.length && !s.claims.length ? (
+            <div className="panel px-4 py-24 text-center text-[13px] text-mute">
+              Reading the registry from {NETWORK.chain}…
+            </div>
+          ) : (
+            children
+          )}
+        </main>
 
         <footer className="border-t border-edge">
           <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-3 flex flex-wrap gap-2 items-center text-[11px] text-mute">
             <span className="flex items-center gap-1.5">
               <Lock size={11} /> Settlement and arbitration execute on-chain. The frontend is an observability layer.
             </span>
-            <span className="ml-auto font-mono flex items-center gap-1.5">
-              <ScrollText size={11} /> GenLayer Studionet · agentsheild.registry · v0.1
-            </span>
+            <a
+              href={explorerAddress(NETWORK.contract)}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto font-mono flex items-center gap-1.5 hover:text-sub"
+            >
+              <ScrollText size={11} /> {NETWORK.chain} · {NETWORK.contract.slice(0, 10)}… <ExternalLink size={10} />
+            </a>
           </div>
         </footer>
       </div>

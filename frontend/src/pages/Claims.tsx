@@ -9,9 +9,14 @@ import type { ClaimStatus, Severity } from '../lib/types';
 const STATUS_FILTERS: Array<ClaimStatus | 'ALL'> = ['ALL', 'pending', 'valid', 'paid', 'invalid', 'duplicate', 'disputed'];
 const SEVERITIES: Severity[] = ['info', 'low', 'medium', 'high', 'critical'];
 
+const MIN_TITLE = 8;
+const MIN_DESC = 20;
+const MIN_EVIDENCE = 10;
+
 function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
   const s = useShield();
-  const [agentId, setAgentId] = useState(s.agents[0]?.id ?? 1);
+  const activeAgents = useMemo(() => s.agents.filter((a) => a.status === 'active'), [s.agents]);
+  const [agentId, setAgentId] = useState(activeAgents[0]?.id ?? 1);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [evidence, setEvidence] = useState('');
@@ -25,14 +30,26 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (open && activeAgents.length && !activeAgents.some((a) => a.id === agentId)) {
+      setAgentId(activeAgents[0].id);
+    }
+  }, [open, activeAgents, agentId]);
+
   if (!open) return null;
 
+  const titleOk = title.trim().length >= MIN_TITLE;
+  const descOk = description.trim().length >= MIN_DESC;
+  const evidenceOk = evidence.trim().length >= MIN_EVIDENCE;
+  const canSubmit = !!s.account && !!activeAgents.length && titleOk && descOk && evidenceOk;
+
   const submit = () => {
-    if (!title.trim()) return;
+    if (!canSubmit) return;
     s.fileClaim({
-      agentId, title: title.trim(),
-      description: description.trim() || 'Filed from the console; full narrative recorded on-chain.',
-      evidence: evidence.trim() || 'claimant-submitted evidence attached to tx',
+      agentId,
+      title: title.trim(),
+      description: description.trim(),
+      evidence: evidence.trim(),
       impact: impact.trim() || 'impact statement pending audit',
       severity,
     });
@@ -52,24 +69,31 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
           </span>
           <div>
             <h2 className="text-[17px] font-extrabold tracking-tight">file_claim()</h2>
-            <p className="text-[12.5px] text-sub mt-0.5">Deterministic intake — no LLM, lands on-chain immediately.</p>
+            <p className="text-[12.5px] text-sub mt-0.5">Deterministic intake — no LLM. Signs a real transaction.</p>
           </div>
           <button onClick={onClose} className="ml-auto rounded-md p-1.5 text-mute hover:text-ink hover:bg-elevated" aria-label="Close">
             <X size={16} />
           </button>
         </div>
 
+        {!s.account && (
+          <p className="text-[11.5px] text-warn mb-3">Connect a wallet to file a claim on chain.</p>
+        )}
+        {!activeAgents.length && (
+          <p className="text-[11.5px] text-warn mb-3">No active agent to file against.</p>
+        )}
+
         <div className="space-y-3">
           <div>
             <label className="meta block mb-1.5">Agent</label>
-            <select value={agentId} onChange={(e) => setAgentId(Number(e.target.value))} className={input}>
-              {s.agents.map((a) => (
+            <select value={agentId} onChange={(e) => setAgentId(Number(e.target.value))} className={input} disabled={!activeAgents.length}>
+              {activeAgents.map((a) => (
                 <option key={a.id} value={a.id}>#{a.id} {a.name} — bond {a.bond / 10n ** 18n} GEN</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="meta block mb-1.5">Title</label>
+            <label className="meta block mb-1.5">Title <span className="text-mute">({title.trim().length}/{MIN_TITLE} min)</span></label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What went wrong" className={input} />
           </div>
           <div>
@@ -90,12 +114,12 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
             </div>
           </div>
           <div>
-            <label className="meta block mb-1.5">Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={input} placeholder="Narrative of the incident" />
+            <label className="meta block mb-1.5">Description <span className="text-mute">({description.trim().length}/{MIN_DESC} min)</span></label>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={input} placeholder="Narrative of the incident" />
           </div>
           <div>
-            <label className="meta block mb-1.5">Evidence</label>
-            <textarea value={evidence} onChange={(e) => setEvidence(e.target.value)} rows={2} className={input} placeholder="Logs, tx hashes, screenshots" />
+            <label className="meta block mb-1.5">Evidence <span className="text-mute">({evidence.trim().length}/{MIN_EVIDENCE} min)</span></label>
+            <textarea value={evidence} onChange={(e) => setEvidence(e.target.value)} rows={3} className={input} placeholder="Logs, tx hashes, screenshots" />
           </div>
           <div>
             <label className="meta block mb-1.5">Impact</label>
@@ -104,8 +128,8 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
         </div>
 
         <div className="mt-4 flex items-center gap-2 border-t border-edge pt-3.5">
-          <p className="text-[11px] text-mute font-mono">returns cid · payout ≤ agent tier</p>
-          <button onClick={submit} disabled={!title.trim()} className="btn-primary ml-auto disabled:opacity-40">
+          <p className="text-[11px] text-mute font-mono">title≥8 · desc≥20 · evidence≥10 · active agent</p>
+          <button onClick={submit} disabled={!canSubmit} className="btn-primary ml-auto disabled:opacity-40">
             File claim
           </button>
         </div>
@@ -135,7 +159,7 @@ export function Claims() {
     <>
       <PageHeader
         title="Claims"
-        sub="Every incident claim against a registered agent: claimed vs AI-audited severity, decision and payout. Select a claim to inspect evidence, the audit round and settlement."
+        sub="Every incident claim against a registered agent, read from the contract: claimed vs AI-audited severity, status and payout. Select a claim to inspect the on-chain record."
         actions={
           <>
             <span className="font-mono text-[11.5px] text-mute self-center">{rows.length} / {s.claims.length} shown</span>
@@ -166,7 +190,9 @@ export function Claims() {
         {rows.map((c) => <ClaimCard key={c.id} claim={c} />)}
       </div>
       {rows.length === 0 && (
-        <div className="panel px-4 py-12 text-center text-[13px] text-mute">No claims match these filters.</div>
+        <div className="panel px-4 py-12 text-center text-[13px] text-mute">
+          {s.claims.length ? 'No claims match these filters.' : 'No claims on chain yet.'}
+        </div>
       )}
 
       <FileClaimModal open={filing} onClose={() => setFiling(false)} />

@@ -94,6 +94,8 @@ function mapAgent(r: any): Agent {
     bond: toGen(r?.bond_bal),
     status: String(r?.status ?? 'active') as AgentStatus,
     claimCount: toNum(r?.claims),
+    openClaims: toNum(r?.open_claims),
+    frozen: Boolean(r?.frozen),
   };
 }
 
@@ -114,6 +116,14 @@ function mapClaim(r: any, agentName: string): Claim {
     duplicateOf: toNum(r?.duplicate_of),
     payout: toGen(r?.payout),
     auditReason: r?.reason ? String(r.reason) : null,
+    paidOut: toGen(r?.paid_out),
+    boundTiers: {
+      critical: toGen(r?.bound?.critical),
+      high: toGen(r?.bound?.high),
+      medium: toGen(r?.bound?.medium),
+      low: toGen(r?.bound?.low),
+      info: 0n,
+    },
   };
 }
 
@@ -126,6 +136,7 @@ function mapDispute(r: any): Dispute {
     reason: String(r?.reason ?? ''),
     resolved: Boolean(r?.resolved),
     outcome: String(r?.outcome ?? ''),
+    settled: Boolean(r?.settled),
     frozenTiers: {
       critical: toGen(l.critical),
       high: toGen(l.high),

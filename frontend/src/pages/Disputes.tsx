@@ -12,8 +12,10 @@ export function Disputes() {
   const [selected, setSelected] = useState<number | null>(null);
 
   const open = s.disputes.filter((d) => !d.resolved);
-  const resolved = s.disputes.filter((d) => d.resolved);
-  const current = s.disputes.find((d) => d.id === selected) ?? open[0] ?? resolved[0] ?? null;
+  // A requeue closes the dispute WITHOUT settling it (settled === false).
+  const settled = s.disputes.filter((d) => d.resolved && d.settled);
+  const requeued = s.disputes.filter((d) => d.resolved && !d.settled);
+  const current = s.disputes.find((d) => d.id === selected) ?? open[0] ?? settled[0] ?? requeued[0] ?? null;
   const claim = current ? s.claims.find((c) => c.id === current.claimId) : undefined;
   const agent = claim ? s.agents.find((a) => a.id === claim.agentId) : undefined;
 
@@ -64,11 +66,11 @@ export function Disputes() {
 
           <div className="panel p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="meta">Resolved</p>
-              <span className="font-mono text-[11px] text-mute">{resolved.length}</span>
+              <p className="meta">Arbitrated (settled)</p>
+              <span className="font-mono text-[11px] text-mute">{settled.length}</span>
             </div>
             <ul className="space-y-1.5">
-              {resolved.map((d) => (
+              {settled.map((d) => (
                 <li key={d.id}>
                   <button
                     onClick={() => setSelected(d.id)}
@@ -83,9 +85,34 @@ export function Disputes() {
                   </button>
                 </li>
               ))}
-              {!resolved.length && <li className="px-2 py-5 text-center text-[12.5px] text-mute">Nothing arbitrated yet.</li>}
+              {!settled.length && <li className="px-2 py-5 text-center text-[12.5px] text-mute">Nothing arbitrated yet.</li>}
             </ul>
           </div>
+
+          {requeued.length > 0 && (
+            <div className="panel p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="meta">Requeued (not settled)</p>
+                <span className="font-mono text-[11px] text-mute">{requeued.length}</span>
+              </div>
+              <ul className="space-y-1.5">
+                {requeued.map((d) => (
+                  <li key={d.id}>
+                    <button
+                      onClick={() => setSelected(d.id)}
+                      className={clsx(
+                        'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors',
+                        current?.id === d.id ? 'bg-warn/15 text-warn' : 'text-sub hover:bg-elevated hover:text-ink'
+                      )}
+                    >
+                      <span className="font-mono text-[11.5px] font-bold">DSP-{String(d.id).padStart(3, '0')}</span>
+                      <span className="text-[11px] text-mute truncate">claim #{d.claimId} · awaiting re-audit</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* detail */}
@@ -119,6 +146,7 @@ export function Disputes() {
                     <StatusBadge status={claim.status} size="sm" />
                     <span className="text-[11.5px] text-mute">severity claimed {claim.severityClaimed}</span>
                     {claim.severityAi && <span className="text-[11.5px] text-mute">· AI severity {claim.severityAi}</span>}
+                    <span className="text-[11.5px] text-mute font-mono">· delivered {formatGen(claim.paidOut)} of {formatGen(claim.payout)} GEN</span>
                     <Link to={`/claims/${claim.id}`} className="ml-auto text-[11.5px] font-bold text-accent hover:underline">
                       Inspect claim →
                     </Link>
@@ -174,8 +202,9 @@ export function Disputes() {
                   ))}
                 </div>
                 <p className="text-[11.5px] text-mute mt-3 leading-snug">
-                  Arbitration reads only the frozen values. Any tier updates the operator makes while the dispute is
-                  open apply to future claims, not this one.
+                  Arbitration reads only the frozen values — mirrored from the terms bound when the claim was
+                  {current.settled ? ' filed, and this dispute is terminally settled' : ' filed (requeues close a dispute without settling it)'}. Any tier
+                  updates the operator makes while claims are open are blocked on chain.
                 </p>
               </div>
             </>

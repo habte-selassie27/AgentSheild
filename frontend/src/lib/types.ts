@@ -33,6 +33,10 @@ export interface Agent {
   status: AgentStatus;
   /** total claims ever filed against this agent (contract agent_claim_counts) */
   claimCount: number;
+  /** claims still pending or under dispute on this agent */
+  openClaims: number;
+  /** true while openClaims > 0: bond cannot be delisted, table cannot be retiered */
+  frozen: boolean;
 }
 
 export interface Claim {
@@ -50,6 +54,10 @@ export interface Claim {
   duplicateOf: number;
   payout: Gen;
   auditReason: string | null;
+  /** amount already delivered to the claimant (contract paid_out) */
+  paidOut: Gen;
+  /** liability table bound at filing — pricing terms for this claim */
+  boundTiers: LiabilityTiers;
 }
 
 /** Dispute as returned by get_dispute(): liability table frozen at raise time. */
@@ -60,6 +68,8 @@ export interface Dispute {
   reason: string;
   resolved: boolean;
   outcome: string;
+  /** true only after a terminal arbitration (not a requeue) */
+  settled: boolean;
   frozenTiers: LiabilityTiers;
 }
 

@@ -171,8 +171,8 @@ def _ast_checks(source: str) -> list[str]:
         "get_agent", "get_claim", "get_dispute", "get_agent_claims",
         "get_pending_queue", "get_agent_stats", "set_fee", "transfer_ownership",
     }
-    required_internals = {"_liability_for", "_append", "_send", "_pay", "_summaries"}
-    required_helpers = {"_clean", "_norm", "_coerce_sev", "_coerce_u", "_tier_payout", "_now"}
+    required_internals = {"_liability_for", "_liability_for_bound", "_append", "_send", "_pay", "_deliver", "_summaries", "_settle", "_open_dispute_for"}
+    required_helpers = {"_clean", "_norm", "_coerce_sev", "_coerce_u", "_tier_payout", "_now", "_evidence_anchors", "_sha256_ok"}
 
     checks = []
 
@@ -213,10 +213,32 @@ def _ast_checks(source: str) -> list[str]:
     assert 'dec, dup = "valid", u256(0)' in source
     checks.append("duplicate citations are derived-checked against storage")
 
-    assert 'c.status = "paid" if self._pay(c.agent_id, c.claimant, reward) else "valid"' in source
-    assert "if not self._pay(c.agent_id, c.claimant, c.payout):" in source
-    assert "Bond underfunded" in source
+    assert "raise gl.vm.UserError(\"Bond underfunded\")" in source
     checks.append("payouts are ledger-gated and underfunded bond fails closed")
+
+    # Evidence authentication: payouts must trace to a linkable artifact.
+    assert "uri:" in source and "sha256:" in source
+    assert "Evidence must carry uri: and sha256: anchors" in source
+    assert "Evidence anchors not confirmed by consensus" in source
+    assert "_evidence_anchors(evidence)" in source
+    assert "_evidence_anchors(ev_m)" in source
+    checks.append("evidence carries uri/sha256 anchors, re-verified at audit, fail-closed")
+
+    # Collateral lock while claims are open.
+    assert "Open claims block delisting" in source
+    assert "Liability table frozen by open claims" in source
+    assert "open_claims" in _function_source(tree, "delist_agent")
+    assert "open_claims" in _function_source(tree, "update_liabilities")
+    assert "a.liability_critical, a.liability_high, a.liability_medium, a.liability_low)\n        if int(a.open_claims) == 0:" in source
+    checks.append("filing binds the claim's terms and locks the bond until terminal")
+
+    # Dispute/requeue state machine.
+    assert "Dispute already open for this claim" in source
+    assert "Claim not in dispute (stale dispute)" in source
+    assert 'd.outcome, d.settled = True, "requeued", False' in source
+    assert source.count("self._deliver(c, reward)") == 2  # audit + arbitration net-settle
+    assert "Payout already delivered" in source
+    checks.append("dispute/requeue gates stale, duplicate and repeated settlement")
 
     assert source.count("gl.message.value") == 2
     assert "@gl.public.write.payable" in source
@@ -246,8 +268,8 @@ def _ast_checks(source: str) -> list[str]:
     checks.append("arbitration pays from the liability table bound at raise_dispute")
 
     assert "_liability_for" not in _function_source(tree, "resolve_dispute")
-    assert "_liability_for" in _function_source(tree, "audit_claim")
-    checks.append("only audit reads the live liability table; resolve_dispute reads the bound one")
+    assert "_liability_for_bound" in _function_source(tree, "audit_claim")
+    checks.append("audit and arbitration settle against the bound terms, not the live table")
 
     return checks
 
@@ -317,7 +339,13 @@ def _helper_checks(c) -> list[str]:
     assert settled["reward"] == 500
     checks.append("end-to-end: a normalized verdict derives a bound payout of 500")
 
-    bound = c.Dispute(1, 7, c.Address("0x0"), "understated", False, "",
+    assert c._evidence_anchors("transcript at uri:https://x/e.txt sha256:" + "a" * 64) == ("https://x/e.txt", "a" * 64)
+    assert c._evidence_anchors("no anchors here") == ("", "")
+    assert not c._sha256_ok("abc123")
+    assert c._sha256_ok("A" * 64)
+    checks.append("evidence anchors parse uri/ sha256/ tokens and reject short digests")
+
+    bound = c.Dispute(1, 7, c.Address("0x0"), "understated", False, "", False,
                       1000, 500, 100, 50)
     live_after_retier = (0, 0, 0, 0)
     assert c._tier_payout((int(bound.liability_critical), int(bound.liability_high),

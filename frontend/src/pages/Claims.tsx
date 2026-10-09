@@ -12,6 +12,13 @@ const SEVERITIES: Severity[] = ['info', 'low', 'medium', 'high', 'critical'];
 const MIN_TITLE = 8;
 const MIN_DESC = 20;
 const MIN_EVIDENCE = 10;
+const URI_RE = /uri:\S+/i;
+const SHA_RE = /sha256:[0-9a-fA-F]{64}/;
+
+/** Contract requires uri: link + 64-hex sha256: digest in the evidence text. */
+function evidenceAnchorsOk(evidence: string): boolean {
+  return URI_RE.test(evidence) && SHA_RE.test(evidence);
+}
 
 function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
   const s = useShield();
@@ -40,7 +47,7 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
 
   const titleOk = title.trim().length >= MIN_TITLE;
   const descOk = description.trim().length >= MIN_DESC;
-  const evidenceOk = evidence.trim().length >= MIN_EVIDENCE;
+  const evidenceOk = evidence.trim().length >= MIN_EVIDENCE && evidenceAnchorsOk(evidence);
   const canSubmit = !!s.account && !!activeAgents.length && titleOk && descOk && evidenceOk;
 
   const submit = () => {
@@ -119,7 +126,11 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
           </div>
           <div>
             <label className="meta block mb-1.5">Evidence <span className="text-mute">({evidence.trim().length}/{MIN_EVIDENCE} min)</span></label>
-            <textarea value={evidence} onChange={(e) => setEvidence(e.target.value)} rows={3} className={input} placeholder="Logs, tx hashes, screenshots" />
+            <textarea value={evidence} onChange={(e) => setEvidence(e.target.value)} rows={4} className={input} placeholder="Logs, tx hashes, screenshots — must include artifact anchors:" />
+            <p className="text-[10.5px] font-mono text-mute mt-1">
+              required anchors: <span className="text-sub">uri:&lt;artifact link&gt;</span> · <span className="text-sub">sha256:&lt;64 hex chars&gt;</span>
+              {evidence.length > 0 && !evidenceAnchorsOk(evidence) && <span className="text-warn"> — missing or malformed</span>}
+            </p>
           </div>
           <div>
             <label className="meta block mb-1.5">Impact</label>
@@ -128,7 +139,7 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
         </div>
 
         <div className="mt-4 flex items-center gap-2 border-t border-edge pt-3.5">
-          <p className="text-[11px] text-mute font-mono">title≥8 · desc≥20 · evidence≥10 · active agent</p>
+          <p className="text-[11px] text-mute font-mono">title≥8 · desc≥20 · evidence anchors uri:/sha256: · active agent</p>
           <button onClick={submit} disabled={!canSubmit} className="btn-primary ml-auto disabled:opacity-40">
             File claim
           </button>

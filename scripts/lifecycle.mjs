@@ -21,21 +21,37 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Wallet } from "ethers";
 import { createClient, createAccount, chains } from "genlayer-js";
 
-const CONTRACT = process.env.AGENTSHEILD || "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF";
+const CONTRACT = process.env.AGENTSHEILD || "0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BOND_WEI = 2n * 10n ** 18n;
+
+// Payouts must trace to authenticated incident evidence: file_claim requires an
+// artifact anchor (`uri:`) and its content digest (`sha256:`) embedded in the
+// evidence text. The digest here is computed for real, from the artifact body
+// below, so the claim references an artifact that can be re-hashed and checked.
+const ARTIFACT_URI = "https://artifacts.agentsheild.example/incident-lifecycle-01.json";
+const ARTIFACT_BODY = JSON.stringify({
+  claim: "Agent leaked my email in a recommendation",
+  transcript: [
+    "user: give me a dinner recipe",
+    "agent: here is a recipe — reach me at user@example.com for questions",
+    "agent: GET https://analytics.third-party.example/track?sid=abc123",
+  ],
+});
+const ARTIFACT_DIGEST = createHash("sha256").update(ARTIFACT_BODY).digest("hex");
 
 const CLAIM = {
   title: "Agent leaked my email in a recommendation",
   description:
     "Asked the agent for a dinner recipe and it included my full email address in the reply, plus an external tracking endpoint.",
   evidence:
-    "Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host with the session id as a query param.",
+    `Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host with the session id as a query param.\nArtifact: uri:${ARTIFACT_URI} sha256:${ARTIFACT_DIGEST}`,
   impact: "PII exposure of the end user without consent or disclosure.",
   severity: "high",
 };

@@ -1,21 +1,28 @@
 {
   "_comment": "Deployed source retrieved via JSON-RPC gen_getContractCode (base64-encoded) and compared to the repository file byte for byte.",
+  "contract_version": "v2",
   "rpc_endpoint": "https://explorer-studio.genlayer.com/api",
   "rpc_methods_used": [
     "gen_getContractCode"
   ],
-  "contract_address": "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
-  "repository_file": "contracts/AgentSheild.py",
-  "repository_sha256": "f45dde8c180931b25e0ce96d21882f6ee7c8c10f15d3d464f4d099316d2393b8",
-  "deployed_sha256": "f45dde8c180931b25e0ce96d21882f6ee7c8c10f15d3d464f4d099316d2393b8",
+  "contract_address": "0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48",
+  "repository_file": "contracts/AgentSheield.py",
+  "repository_sha256": "142a59c3870f549ecc2f4baafd562617858442013de567f51a376dbb68623c18",
+  "deployed_sha256": "142a59c3870f549ecc2f4baafd562617858442013de567f51a376dbb68623c18",
   "byte_identical": true,
-  "bytes": 23470,
-  "lines": 506,
+  "bytes": 33150,
+  "lines": 683,
   "runner_pin": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6",
-  "verified_at": "2026-10-08",
+  "verified_at": "2026-10-09",
+  "what_this_version_adds": [
+    "file_claim requires embedded uri: and sha256: evidence anchors; audit re-derives and consensus-echoes them (fail closed on mismatch)",
+    "every claim snapshots the agent's liability table at filing; audit, requeue and arbitration settle from the bound table only",
+    "open claims freeze the bond: delist_agent and update_liabilities revert until final resolution",
+    "dispute gating: funded outcomes stay disputable, one open dispute per claim, stale disputes cannot resolve, requeue closes without settling, settlement nets against paid_out"
+  ],
   "reproduce": [
     "curl -s -X POST https://explorer-studio.genlayer.com/api -H 'content-type: application/json' \\",
-    "  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"gen_getContractCode\",\"params\":[\"0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF\"]}' \\",
+    "  -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"gen_getContractCode\",\"params\":[\"0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48\"]}' \\",
     "  | python3 -c 'import json,sys,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)[\"result\"]))' \\",
     "  | cmp - contracts/AgentSheild.py && echo byte-identical"
   ]

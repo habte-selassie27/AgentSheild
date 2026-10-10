@@ -1,9 +1,9 @@
 # AgentSheild — AI-Audited Agent Liability Primitive (GenLayer Intelligent Contract)
 
-[![tests](https://img.shields.io/badge/tests-10%20passing-brightgreen)](#testing)
+[![tests](https://img.shields.io/badge/tests-14%20passing-brightgreen)](#testing)
 [![lint](https://img.shields.io/badge/genvm--lint-passing-brightgreen)](#deploy--run)
 [![source](https://img.shields.io/badge/source-byte--verified-brightgreen)](#live-deployments)
-[![contract](https://img.shields.io/badge/contract-506%20lines%20%C3%97%2020%20methods-blue)](contracts/AgentSheild.py)
+[![contract](https://img.shields.io/badge/contract-683%20lines%20%C3%97%2020%20methods-blue)](contracts/AgentSheild.py)
 [![network](https://img.shields.io/badge/network-studionet-orange)](#live-deployments)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -16,37 +16,43 @@ arbitration.
 **Quick start**
 
 ```bash
-python3.12 -m pytest tests/ -q                    # 10 passed
-python3.12 scripts/preflight.py                   # 32/32 structural checks
+python3.12 -m pytest tests/ -q                    # 14 passed
+python3.12 scripts/preflight.py                   # 36/36 structural checks
 GENVM_VERSION=v0.3.0-rc7 genvm-lint check contracts/AgentSheild.py   # lint + validation ok
 ```
 
 ## Live deployments
 
-| Role | Address | Deploy tx | Consensus on deploy |
-|---|---|---|---|
-| **Official** | [`0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF`](https://explorer-studio.genlayer.com/address/0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF) | `0x8adc2d7f…ccc9f0cc` | 5 agree / 0 idle (FINALIZED) |
+| Role | Address | Deploy tx | Consensus on deploy | Contract |
+|---|---|---|---|---|
+| **Official** | [`0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48`](https://explorer-studio.genlayer.com/address/0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48) | [`0xa638860a…ab2bab66`](https://explorer-studio.genlayer.com/tx/0xa638860a035866b2c2d3595f5e4f23bdcb4bc38410a0426cfa5effacab2bab66) | 3 agree / 2 idle (FINALIZED) | this repo — sha256 `142a59c3…623c18`, 683 lines |
 
-Open it in Studio with
-[`?import-contract=`](https://studio.genlayer.com/?import-contract=0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF).
 The deployment runs source that is **byte-identical** to this repo's contract
-(sha256 `f45dde8c…6393b8`, 23470 bytes, 506 lines). Verify it yourself in one
-line:
+(33150 bytes). Verify it yourself in one line:
 
 ```bash
 curl -s -X POST https://explorer-studio.genlayer.com/api -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":["0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF"]}' \
-| python3 -c 'import json,sys,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["result"]))' \
-| cmp - contracts/AgentSheild.py && echo byte-identical
+  -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":["0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48"]}' \
+  | python3 -c 'import json,sys,base64; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["result"]))' \
+  | cmp - contracts/AgentSheild.py && echo byte-identical
+```
+
+Open it in Studio with
+[`?import-contract=`](https://studio.genlayer.com/?import-contract=0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48).
+
+A full real lifecycle has run on the current deployment — register → bond
+2 GEN → file (evidence anchored with `uri:`/`sha256:`) → `audit_claim`
+consensus (tx [`0xac1c5a06…969b`](https://explorer-studio.genlayer.com/tx/0xac1c5a0623329d8978e60a948885bf996cfe4e80a30fb772ff8e553dbfaa969b),
+3 agree / 0 idle, FINALIZED). The LLM judged the claim `high`, paid `500`
+from the bond, and wrote its reason on-chain; see
+[`proof/lifecycle.json`](proof/lifecycle.json). Reproduce it any time:
+
+```bash
+AGENTSHEILD=0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48 node scripts/lifecycle.mjs
 ```
 
 Receipts, source verification, and the full lifecycle evidence live in
-[`proof/`](proof/). A complete **real** lifecycle has already run on the
-official contract — register → bond 2 GEN → file → `audit_claim` consensus
-(tx [`0xa81cfa7c…6be1c`](https://explorer-studio.genlayer.com/tx/0xa81cfa7cdd9c53759ebc85f9cb0509c2da465c5bde531120030740d3bb26be1c),
-3 agree / 2 idle, FINALIZED). The LLM judged the claim `high`, paid `500`
-from the bond, and wrote its reason on-chain; see
-[`proof/lifecycle.json`](proof/lifecycle.json).
+[`proof/`](proof/).
 
 ## What it does
 
@@ -78,6 +84,9 @@ splits, status transitions, payouts, and arbitration never touch an LLM.
 | Generic "AI decides X" | Audit is grounded in on-chain inputs only (policy + claim + existing valid-claim summaries). Validators re-run the same prompt independently. |
 | Schema-only validation | Consensus is `gl.eq_principle.prompt_comparative` with a substantive principle (decision must match exactly, severity within one tier, **derived `reward` must be identical** — the GEN amount each verdict would pay). No `strict_eq` on LLM text. |
 | Blind trust in LLM ids | Duplicate verdicts are **derived-checked**: the cited `duplicate_of` must exist, belong to the same agent, and be `valid/paid` — else downgraded to `valid`. |
+| Unauthenticated evidence | Payouts trace to authenticated incident evidence: `file_claim` requires embedded `uri:` + `sha256:` anchors, the consensus verdict must echo the same anchors derived from the stored evidence (mismatch reverts), and an LLM return of `evidence-not-authenticated` forces `invalid`. |
+| Operator rewrites the stakes | Each claim **binds** the agent's liability table at filing; audit, requeue, and arbitration settle from the bound table only. While any claim is pending/disputed the bond is frozen — delist and `update_liabilities` revert — until final resolution. |
+| State-machine abuse (disputes) | Funded outcomes stay disputable, one open dispute per claim, `resolve_dispute` rejects stale disputes on non-disputed claims, requeue closes a dispute **without** settling (collateral lock stays), and every settlement nets against `paid_out` so no incident can pay twice. |
 | Hallucinated JSON | Defensive parsing (`_clean`/`_norm`): dict passthrough, fenced-JSON stripping, substring extraction, key-variation tolerance (`decision` vs `is_valid`/`is_duplicate`), severity coercion. |
 | Mixed nondet + money | LLM runs inside `audit_fn` only. All bond math, fee splits, and status transitions are deterministic settlement **after** consensus. |
 | Storage anti-patterns | `TreeMap` index maps, `u256` atto-scale money, `@allow_storage` structs, appended-only layout. `dict`/`list`/`float` never touch storage. |
@@ -93,19 +102,23 @@ method:
 2. Build a bounded dedup context (`_summaries`: last 60 claims, max 20 lines).
 3. `audit_fn` calls `gl.nondet.exec_prompt(prompt, response_format="json")`,
    normalizes it, then derives `reward` deterministically from
-   `severity + the agent's liability table` (`_tier_payout`) and returns
-   `{"decision","severity","duplicate_of","reason","reward"}`.
+   `severity + the claim's bound liability table` (`_tier_payout`) and returns
+   `{"decision","severity","duplicate_of","reason","reward"}` plus the
+   evidence anchors echoed back from the stored evidence string.
 4. `gl.eq_principle.prompt_comparative(audit_fn, principle)` — every validator
    re-runs the prompt; an `EqComparative` LLM judge accepts only equivalent
    verdicts: identical `decision`, matching `duplicate_of`, severity within one
-   tier, and **identical `reward`** — the exact GEN amount each verdict would
-   pay — so tier-tolerant severity can never move the transferred amount.
+   tier, identical `reward` — the exact GEN amount each verdict would pay —
+   so tier-tolerant severity can never move the transferred amount.
    Divergent audits fail consensus and write nothing.
-5. Deterministic settlement: apply the decision (including the derived-check
-   duplicate→valid downgrade), recompute the tier payout from stored tiers and
-   require it to equal the consensus `reward` (any mismatch reverts — fail
-   closed), auto-pay via `emit_transfer` (claimant gets `payout - fee`, owner
-   gets fee), or leave `valid` claimable if the bond is underfunded.
+5. Deterministic settlement: re-derive the evidence anchors from storage and
+   require them to equal the consensus-echoed ones (mismatch reverts — fail
+   closed), apply the decision (including the derived-check duplicate→valid
+   downgrade), recompute the tier payout from the **bound** table and require
+   it to equal the consensus `reward` (any mismatch reverts), then net-settle
+   against `paid_out` and auto-pay via `emit_transfer` (claimant gets
+   `payout - fee`, owner gets fee), or leave `valid` claimable if the bond is
+   underfunded.
 
 All other writes (`register/bond/pause/resume/delist`, `claim_payout`,
 `raise/resolve_dispute`, admin) are deterministic.
@@ -118,6 +131,11 @@ All other writes (`register/bond/pause/resume/delist`, `claim_payout`,
   `claimant_claim_counts` + `claimant_claim_index["addr:idx"]`.
 - Money: per-severity `u256` liability tiers + `bond_bal` ledger per agent; the
   contract balance holds the pooled GEN, the ledger prevents overspend.
+- Locked terms: every claim snapshots the liability table at filing
+  (`bound_*`), the amount already delivered (`paid_out`), and each agent carries
+  an `open_claims` hold + `frozen` flag so delist/retier revert until terminal
+  resolution. Disputes mirror the bound table at raise (`liability_*`), and
+  `settled` distinguishes terminal arbitration from a requeue close.
 
 ## API reference
 
@@ -128,14 +146,14 @@ All other writes (`register/bond/pause/resume/delist`, `claim_payout`,
 |---|---|---|---|
 | `register_agent(name, policy, desc, l_crit, l_high, l_med, l_low)` | write | anyone | Open agent, returns `aid`. Liabilities must descend. |
 | `bond_agent(aid)` | write.payable | operator | Add GEN bond. |
-| `pause_agent / resume_agent / delist_agent` | write | operator | Lifecycle; delist refunds bond. |
-| `update_liabilities(...)` | write | operator | Retier liability table. |
-| `file_claim(aid, title, desc, evidence, impact, sev)` | write | claimant | Deterministic intake, returns `cid`. |
+| `pause_agent / resume_agent / delist_agent` | write | operator | Lifecycle; delist refunds bond, blocked while claims are open (frozen). |
+| `update_liabilities(...)` | write | operator | Retier liability table; blocked while claims are open. |
+| `file_claim(aid, title, desc, evidence, impact, sev)` | write | claimant | Deterministic intake, returns `cid`. Requires `uri:`/`sha256:` evidence anchors; binds the liability table at filing. |
 | `audit_claim(cid)` | write (consensus) | anyone | LLM audit + auto-pay. Returns decision dict. |
-| `claim_payout(cid)` | write | anyone | Pay a `valid` claim once bonded. |
-| `raise_dispute(cid, reason)` | write | claimant/operator | Freeze to `disputed`, returns `did`. |
-| `resolve_dispute(did, outcome, sev)` | write | owner | Arbitrate + pay if `valid`. |
-| `requeue_disputed(cid)` | write | owner/operator | Back to `pending` for re-audit. |
+| `claim_payout(cid)` | write | anyone | Pay a `valid` claim once bonded; nets against `paid_out`. |
+| `raise_dispute(cid, reason)` | write | claimant/operator | Freeze to `disputed`, returns `did`. `valid`/`paid`/`invalid`/`duplicate` stay disputable; one open dispute per claim. |
+| `resolve_dispute(did, outcome, sev)` | write | owner | Arbitrate + net-pay if `valid`; stale disputes on non-disputed claims revert. |
+| `requeue_disputed(cid)` | write | owner/operator | Back to `pending` for re-audit; closes the dispute without settling it. |
 | `get_agent / get_claim / get_dispute` | view | anyone | Single struct as a primitive-only dict. |
 | `get_agent_claims(aid, offset, limit)` | view | anyone | Paginated claim ids (JSON-array string to keep the ABI primitive). |
 | `get_pending_queue(limit)` | view | anyone | Pending claim ids (same convention). |
@@ -146,15 +164,15 @@ All other writes (`register/bond/pause/resume/delist`, `claim_payout`,
 
 | Suite | Count | Covers | Command |
 |---|---|---|---|
-| Direct Mode (leader-only, mocked LLM) | 6 | register/file, auto-pay when funded, hallucinated duplicate downgraded, bad severity rejected, arbitration pays from the bound liability table, delisted-agent retier guard | `python3.12 -m pytest tests/direct -v` |
+| Direct Mode (leader-only, mocked LLM) | 10 | register/file, evidence-anchor intake, auto-pay when funded, hallucinated duplicate downgraded, bad severity rejected, arbitration pays from the bound liability table, delisted-agent retier guard, requeue keeps the collateral lock, stale-dispute/repeated-settlement guards | `python3.12 -m pytest tests/direct -v` |
 | Normalizer / helpers (no node) | 4 | fenced JSON, key variants, garbage + severity coercion, deterministic tier payout | `python3.12 -m pytest tests/test_normalizer.py -v` |
-| Offline preflight | 32 checks | structural audit without a GenVM runtime | `python3.12 scripts/preflight.py` |
+| Offline preflight | 36 checks | structural audit without a GenVM runtime | `python3.12 scripts/preflight.py` |
 | Lint + schema validation | — | pinned runner, storage types, ABI | `GENVM_VERSION=v0.3.0-rc7 genvm-lint check contracts/AgentSheild.py` |
 
 Everything in one go:
 
 ```bash
-python3.12 -m pytest tests/ -q     # 10 passed (~0.2s)
+python3.12 -m pytest tests/ -q     # 14 passed (~0.2s)
 ```
 
 ## Deploy / run
@@ -162,7 +180,7 @@ python3.12 -m pytest tests/ -q     # 10 passed (~0.2s)
 The contract is already deployed on StudioNet:
 
 ```bash
-export AGENTSHEILD=0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF
+export AGENTSHEILD=0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48
 ```
 
 To deploy elsewhere, and then run the lifecycle:
@@ -175,7 +193,9 @@ genlayer deploy --contract contracts/AgentSheild.py
 export AGENTSHEILD=<deployed address>
 # file + audit via the CLI (register first if fresh):
 genlayer write "$AGENTSHEILD" register_agent --args "Smoke Shopping Agent" "<policy>" "<desc>" 1000 500 100 50
-genlayer write "$AGENTSHEILD" file_claim --args 1 "Agent leaked my email" "..." "..." "PII exposure" high
+# evidence must carry an artifact anchor and its digest, e.g.:
+#   "transcript… uri:https://example/artifact.json sha256:<64 hex>"
+genlayer write "$AGENTSHEILD" file_claim --args 1 "Agent leaked my email" "..." "… uri:https://example/a.json sha256:0000…0000" "PII exposure" high
 genlayer write "$AGENTSHEILD" audit_claim --args 1
 genlayer call "$AGENTSHEILD" get_claim --args 1
 # bond_agent is payable: the genlayer CLI cannot send value (no --value flag),
@@ -192,7 +212,7 @@ node scripts/lifecycle.mjs
 Read-only smoke (all 6 views, spends nothing):
 
 ```bash
-AGENTSHEILD_CONTRACT=0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF scripts/smoke.sh
+AGENTSHEILD_CONTRACT=0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48 scripts/smoke.sh
 ```
 
 Full annotated command sheet: [`DEPLOYMENT.md`](DEPLOYMENT.md).
@@ -200,13 +220,13 @@ Full annotated command sheet: [`DEPLOYMENT.md`](DEPLOYMENT.md).
 ## Repository layout
 
 ```text
-contracts/AgentSheild.py   the primitive, 506 lines, single file
+contracts/AgentSheild.py   the primitive, 683 lines, single file
 DEPLOYMENT.md              annotated deploy + smoke command sheet
 proof/                     live receipts, byte-identity, real lifecycle evidence
 scripts/preflight.py       offline audit, no GenVM runtime required
 scripts/smoke.sh           CLI read + write lifecycle smoke sequence
 scripts/lifecycle.mjs      real StudioNet lifecycle (bond value via genlayer-js)
-tests/direct/              Direct Mode: leader-only, mocked LLM (6 tests)
+tests/direct/              Direct Mode: leader-only, mocked LLM (10 tests)
 tests/test_normalizer.py   pure helpers vs adversarial LLM output (4 tests)
 docs/                      (planned) architecture, consensus, integration, threat model
 artifacts/                 gltest build output (gitignored)

@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # Official StudioNet deployment (override to target another address).
-AGENTSHEILD_CONTRACT="${AGENTSHEILD_CONTRACT:-0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF}"
+AGENTSHEILD_CONTRACT="${AGENTSHEILD_CONTRACT:-0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48}"
 AGENT_ID="${AGENT_ID:-1}"
 CLAIM_ID="${CLAIM_ID:-${CID:-1}}"
 DISPUTE_ID="${DISPUTE_ID:-}"
@@ -26,7 +26,15 @@ AGENT_NAME="Smoke Shopping Agent"
 AGENT_POLICY="Never share user PII, never take actions beyond the user request, always cite the source of a price quote."
 CLAIM_TITLE="Agent leaked my email in a recommendation"
 CLAIM_DESC="Asked the agent for a dinner recipe and it included my full email address in the reply, plus an external tracking endpoint."
-CLAIM_EVIDENCE="Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host."
+# Payouts must trace to authenticated incident evidence: file_claim requires
+# an artifact anchor (uri:) and its content digest (sha256:) embedded in the
+# evidence text. The digest is computed here from the artifact body below, so
+# the claim references an artifact that can be re-hashed and checked.
+CLAIM_ARTIFACT_URI="https://artifacts.agentsheild.example/incident-smoke-01.json"
+CLAIM_ARTIFACT_BODY='{"claim":"Agent leaked my email in a recommendation","transcript":["user: give me a dinner recipe","agent: here is a recipe - reach me at user@example.com for questions","agent: GET https://analytics.third-party.example/track?sid=abc123"]}'
+CLAIM_ARTIFACT_DIGEST="$(printf '%s' "$CLAIM_ARTIFACT_BODY" | sha256sum | cut -d' ' -f1)"
+CLAIM_EVIDENCE="Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host.
+Artifact: uri:${CLAIM_ARTIFACT_URI} sha256:${CLAIM_ARTIFACT_DIGEST}"
 CLAIM_IMPACT="PII exposure of the end user without consent or disclosure."
 CLAIM_SEVERITY="high"
 DISPUTE_REASON="Smoke-path dispute raised to exercise the arbitration freeze; severity looks understated."
@@ -49,7 +57,7 @@ usage() {
     "  scripts/smoke.sh --help          show this help" \
     "" \
     "Environment:" \
-    "  AGENTSHEILD_CONTRACT  deployed contract address (default: official StudioNet 0x8c354C2a…31fbF)" \
+    "  AGENTSHEILD_CONTRACT  deployed contract address (default: official StudioNet 0x9F9eBD0d…961A48)" \
     "  AGENT_ID          agent to read in read mode (default: 1)" \
     "  CLAIM_ID           claim to read in read mode (default: 1)" \
     "  DISPUTE_ID          dispute to read in read mode; write mode sets it from" \

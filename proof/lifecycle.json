@@ -1,62 +1,45 @@
 {
-  "_comment": "Real StudioNet lifecycle receipts for AgentSheild. Addresses and hashes are live; no secrets are stored here. Produced by scripts/lifecycle.mjs.",
-  "contract": "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
+  "_comment": "Real StudioNet lifecycle receipts for AgentSheild on the current v2 deployment (0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48): file_claim carried uri:/sha256: evidence anchors, the claim's liability table was bound at filing, and audit_claim paid from the bond under real validator consensus (3 agree / 0 idle). Addresses and hashes are live; no secrets are stored here. The earlier v1 run is preserved in lifecycle-v1.json.",
+  "contract": "0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48",
   "network": "studionet",
-  "started_at": "2026-10-08T14:29:31.701Z",
+  "started_at": "2026-10-09T16:44:45.355Z",
   "steps": [
     {
       "step": "register_agent",
+      "tx": "0x04f5f4e618e80b426554864dc1b80da221a19739e942f6ef9ffea7dbb86b70b0",
       "agent_id": 1,
-      "tx": "0x32f412189a3c96b932ac60d3b311cb641766bdbcc2bec91774f759fab0c7641a",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "result_code": 6
+      "status": "FINALIZED"
     },
     {
       "step": "bond_agent",
-      "args": [1],
+      "args": [
+        1
+      ],
       "value_wei": "2000000000000000000",
-      "tx": "0xd1407d2da51480cece7cae6d480d70db8e9e07cbad1454cd6041feceed6c1971",
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "result_code": 6,
-      "note": "Payable call sent with value: 2 GEN (genlayer-js writeContract value; genlayer CLI cannot send value)"
+      "tx": "0x0788e1befa6afb7a05c624b015ce2095cfd32aa13a5be8fd0015610aed8f59b7",
+      "status": "FINALIZED"
     },
     {
       "step": "file_claim",
-      "tx": "0x42ff3201b171c64d510757737f297595c051be971ca0715efa77aabd004cdafd",
+      "tx": "0x0017a71ef1c7291ab3ebe0b180093d7a70865603db5657e68e1b3a7fbda94a5a",
       "claim_id": 1,
       "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "result_code": 6,
       "claim": {
         "title": "Agent leaked my email in a recommendation",
-        "severity_claimed": "high"
+        "description": "Asked the agent for a dinner recipe and it included my full email address in the reply, plus an external tracking endpoint.",
+        "evidence": "Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host with the session id as a query param.\nArtifact: uri:https://artifacts.agentsheild.example/incident-lifecycle-01.json sha256:b8ce164665ba6e343bb162dd9f7e3f2cb9d759d972202ff298f71906cb605c00",
+        "impact": "PII exposure of the end user without consent or disclosure.",
+        "severity": "high"
       }
     },
     {
       "step": "audit_claim",
-      "args": [1],
-      "tx": "0xa81cfa7cdd9c53759ebc85f9cb0509c2da465c5bde531120030740d3bb26be1c",
+      "tx": "0xac1c5a0623329d8978e60a948885bf996cfe4e80a30fb772ff8e553dbfaa969b",
       "claim_id": 1,
-      "status": "FINALIZED",
-      "execution_result": "SUCCESS",
-      "result_code": 6,
-      "consensus": {
-        "agree": 3,
-        "idle": 2,
-        "disagree": 0,
-        "models": {
-          "primary": "policy:prd-mistral",
-          "secondary": "openai/gpt-5.4"
-        },
-        "validator_votes": {
-          "0x03D58A4DeF6fDFc032A56374785a5F571D07Bc11": "agree",
-          "0x4aba638Cf0Cf5249437AaD968fC69dde46ae6BAC": "idle",
-          "0x6737ca1d6BDF8b7C4f19143E2D55581Ca64eb7C3": "agree",
-          "0x76c25AFC12c75485703cCFfd0083AA6201455B25": "agree",
-          "0x9ea87b28DcA2F79fe108CF06a4c13B4c876AC23d": "idle"
-        }
+      "receipt": {
+        "tx": "0xac1c5a0623329d8978e60a948885bf996cfe4e80a30fb772ff8e553dbfaa969b",
+        "status": "FINALIZED",
+        "execution_result": "SUCCESS"
       }
     }
   ],
@@ -64,6 +47,7 @@
     "agent": {
       "bond_bal": "1999999999999999500",
       "claims": 1,
+      "frozen": false,
       "id": 1,
       "liabilities": {
         "critical": 1000,
@@ -73,21 +57,29 @@
         "medium": 100
       },
       "name": "Smoke Shopping Agent",
+      "open_claims": 0,
       "operator": "0x5B3661C576c7001e6d6279C67F3779705d334c89",
       "policy": "Never share user PII, never take actions beyond the user request, always cite the source of a price quote.",
       "status": "active"
     },
     "claim": {
       "agent_id": 1,
+      "bound": {
+        "critical": 1000,
+        "high": 500,
+        "low": 50,
+        "medium": 100
+      },
       "claimant": "0x5B3661C576c7001e6d6279C67F3779705d334c89",
       "claimed": "high",
       "description": "Asked the agent for a dinner recipe and it included my full email address in the reply, plus an external tracking endpoint.",
       "duplicate_of": 0,
-      "evidence": "Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host with the session id as a query param.",
+      "evidence": "Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host with the session id as a query param.\nArtifact: uri:https://artifacts.agentsheild.example/incident-lifecycle-01.json sha256:b8ce164665ba6e343bb162dd9f7e3f2cb9d759d972202ff298f71906cb605c00",
       "id": 1,
       "impact": "PII exposure of the end user without consent or disclosure.",
+      "paid_out": 500,
       "payout": 500,
-      "reason": "Agent violated policy by exposing user PII (email) and embedding an unauthorized tracking endpoint without consent.",
+      "reason": "Evidence cites transcript lines with embedded PII and third-party tracking GET, anchored by uri and sha256; violates PII-sharing and beyond-scope policies.",
       "severity_ai": "high",
       "status": "paid",
       "title": "Agent leaked my email in a recommendation"
@@ -103,5 +95,5 @@
       "valid": 1
     }
   },
-  "finished_at": "2026-10-08T14:30:28.941Z"
+  "finished_at": "2026-10-09T16:47:31.093Z"
 }

@@ -4,22 +4,27 @@
 
 | Item | State |
 |---|---|
-| Contract | `contracts/AgentSheild.py`, 506 lines, runner pinned in the header comment |
-| Offline preflight | `scripts/preflight.py` — 32/32 checks pass |
-| Direct Mode tests | `tests/direct/test_agentsheild.py` — leader-only, mocked LLM |
-| LLM-resilience tests | `tests/test_normalizer.py` — no node required |
-| Live deployment | `0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF` on StudioNet, deploy tx `0x8adc2d7f…ccc9f0cc`, `FINALIZED` |
-| Source verification | deployed source **byte-identical** to `contracts/AgentSheild.py`, sha256 `f45dde8c…6393b8` |
-| Consensus evidence | **captured** — `audit_claim` tx `0xa81cfa7c…6be1c`, FINALIZED, 3 agree / 2 idle; claim paid 500 (see `proof/lifecycle.json`) |
+| Contract | `contracts/AgentSheield.py`, 683 lines, runner pinned in the header comment |
+| Offline preflight | `scripts/preflight.py` — 36/36 checks pass |
+| Direct Mode tests | `tests/direct/test_agentsheild.py` — leader-only, mocked LLM (10 tests) |
+| LLM-resilience tests | `tests/test_normalizer.py` — no node required (4 tests) |
+| Live deployment | `0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48` on StudioNet, deploy tx `0xa638860a…ab2bab66`, `FINALIZED` (3 agree / 2 idle) |
+| Source verification | deployed source **byte-identical** to `contracts/AgentSheield.py`, sha256 `142a59c3…623c18` (33150 bytes, 683 lines) |
+| Consensus evidence | **captured on v2** — `audit_claim` tx `0xac1c5a06…969b`, FINALIZED, 3 agree / 0 idle; claim paid 500 (see `proof/lifecycle.json`) |
 
 Direct Mode runs the leader function only. It is not consensus evidence.
 
-The contract **is deployed** at `0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF`
-on StudioNet and its on-chain source is byte-identical to this repository. A
-full real lifecycle has already run on it: register → bond 2 GEN → file →
-`audit_claim` consensus → paid claim (`severity_ai: high`, `payout: 500`).
-All receipts are in `proof/`, with the consensus receipt in
-`proof/lifecycle.json`.
+The contract **is deployed** at `0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48`
+on StudioNet, running source **byte-identical** to this repository
+(sha256 `142a59c3…623c18`). `file_claim` requires embedded `uri:`/`sha256:`
+evidence anchors, every claim binds its liability table at filing, and disputes
+are gated against stale, undisputable, and repeated settlement.
+
+A full real lifecycle has run on this deployment: register → bond 2 GEN →
+file (anchored evidence) → `audit_claim` consensus (3 agree / 0 idle, claim
+`high` paid `500`, LLM reason on-chain). All receipts are in `proof/`, with the
+consensus receipt in `proof/lifecycle.json`. The earlier v1 receipts
+(`0x8c354C2a…31fbF`) are preserved in `proof/lifecycle-v1.json`.
 
 ## Requirements
 
@@ -83,11 +88,12 @@ Record the address and the deploy transaction hash. They go in
 For this repository that has already happened:
 
 ```text
-address     0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF
-deploy tx   0x8adc2d7f0ee14f96d1702f6b953a424356ca016fcaaed50af36e659bccc9f0cc
+address     0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48
+deploy tx   0xa638860a035866b2c2d3595f5e4f23bdcb4bc38410a0426cfa5effacab2bab66
 creator     0x5B3661C576c7001e6d6279C67F3779705d334c89
-created     2026-10-08T14:12:11.920966+00:00
-status      FINALIZED, leader SUCCESS, 5 agree / 0 idle
+created     2026-10-09T15:54:45+00:00
+status      FINALIZED, leader SUCCESS, 3 agree / 2 idle (idle cancelled after quorum)
+ABI         20 methods - 6 view, 14 write, 1 payable
 ```
 
 ## Runtime smoke sequence
@@ -98,7 +104,7 @@ quickly; `audit_claim` runs full consensus and needs a longer poll.
 ### Setup
 
 ```bash
-export AGENTSHEILD="0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF"
+export AGENTSHEILD="0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48"
 
 # 1. register an agent. Liabilities must descend critical >= high >= medium >= low.
 genlayer write "$AGENTSHEILD" register_agent --args \
@@ -117,11 +123,15 @@ node scripts/lifecycle.mjs          # registers, bonds 2 GEN, files, audits
 ### Claim intake
 
 ```bash
-# 3. file. Length minimums and a valid tier are enforced before storage.
+# 3. file. Length minimums, a valid tier, and evidence anchors (uri: link +
+#    sha256: digest of the artifact) are enforced before storage. The digest
+#    below is the sha256 of the referenced transcript artifact; recompute it
+#    with `sha256sum` if you swap the evidence text.
 genlayer write "$AGENTSHEILD" file_claim --args 1 \
   "Agent leaked my email in a recommendation" \
   "Asked the agent for a dinner recipe and it included my full email address in the reply, plus an external tracking endpoint." \
-  "Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host." \
+  "Chat transcript lines 1-12: the reply embeds user@example.com and a GET request to a third-party analytics host.
+Artifact: uri:https://artifacts.agentsheild.example/incident-smoke-01.json sha256:78d6119aa4ccc1a61acefb81dd4c9ccfaa267ed7a4d42cc1e61ce40b2f081387" \
   "PII exposure of the end user without consent or disclosure." \
   high
 # -> returns claim_id (1 on a fresh contract)
@@ -167,7 +177,7 @@ itself evidence that the amount was consensus-bound — the contract reverts wit
 # operator lifecycle
 genlayer write "$AGENTSHEILD" pause_agent  --args 1
 genlayer write "$AGENTSHEILD" resume_agent --args 1
-genlayer write "$AGENTSHEILD" delist_agent --args 1   # refunds remaining bond to the operator
+genlayer write "$AGENTSHEILD" delist_agent --args 1   # refunds remaining bond; blocked while claims stay open (frozen)
 
 # dispute: claimant or agent operator only
 genlayer write "$AGENTSHEILD" raise_dispute     --args 1 "severity is understated"
@@ -228,14 +238,14 @@ python3 -m pytest tests/test_normalizer.py -v
 python3 -m pytest tests/direct -v
 
 # everything
-python3 -m pytest tests/ -q     # 10 passed
+python3 -m pytest tests/ -q     # 14 passed
 ```
 
 ## Before submitting
 
-- [x] `GENVM_VERSION=v0.3.0-rc7 genvm-lint check contracts/AgentSheild.py` passes
-- [x] `python3 scripts/preflight.py` passes (32/32)
-- [x] `python3 -m pytest tests/ -q` passes (10)
-- [x] deployed to a public test network (StudioNet `0x8c354C2a…31fbF`)
-- [x] deployed source byte-identical, recorded in `proof/`
-- [x] `audit_claim` receipt in `proof/lifecycle.json`: `FINALIZED`, 3 agree / 2 idle, claim paid
+- [x] `GENVM_VERSION=v0.3.0-rc7 genvm-lint check contracts/AgentSheield.py` passes
+- [x] `python3 scripts/preflight.py` passes (36/36)
+- [x] `python3 -m pytest tests/ -q` passes (14)
+- [x] deployed to a public test network (StudioNet `0x9F9eBD0d…961A48`, deploy tx `0xa638860a…ab2bab66`, 3 agree / 2 idle)
+- [x] deployed source byte-identical to `contracts/AgentSheield.py`, recorded in `proof/`
+- [x] `audit_claim` receipt in `proof/lifecycle.json`: `FINALIZED`, 3 agree / 0 idle, claim paid 500

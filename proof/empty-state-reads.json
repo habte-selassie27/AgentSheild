@@ -1,5 +1,5 @@
 {
-  "_comment": "Pre-lifecycle state reads against the official contract, taken between deployment (2026-10-08T14:12:11Z) and the first lifecycle run (2026-10-08T14:29Z). The deployment was fresh and unused at that moment: no agent, no claim, no dispute, no bond. State has since changed; current state is in lifecycle.json.",
+  "_comment": "Pre-lifecycle state reads against the v1 contract (superseded deployment), taken between its deployment (2026-10-08T14:12:11Z) and the first lifecycle run (2026-10-08T14:29Z). The deployment was fresh and unused at that moment: no agent, no claim, no dispute, no bond. State has since changed; current state is in lifecycle.json.",
   "contract_address": "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
   "observed_at": "2026-10-08T14:2x:00+00:00 (before the lifecycle run recorded in lifecycle.json)",
   "reads": [

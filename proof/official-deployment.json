@@ -1,29 +1,32 @@
 {
-  "_comment": "Live GenLayer StudioNet deployment of this repository's source. Sanitized: no private keys, tokens, or machine-local configuration. Validator addresses are public on-chain identities, not secrets.",
+  "_comment": "Live GenLayer StudioNet deployment of this repository's contract source (v2, byte-identical to contracts/AgentSheield.py). Sanitized: no private keys, tokens, or machine-local configuration. Validator addresses are public on-chain identities, not secrets.",
+  "contract_version": "v2",
   "network": "studionet (GenLayer Studio Network)",
-  "contract_address": "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
-  "studio_url": "https://studio.genlayer.com/?import-contract=0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
-  "explorer_url": "https://explorer-studio.genlayer.com/address/0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
-  "deployment_tx_hash": "0x8adc2d7f0ee14f96d1702f6b953a424356ca016fcaaed50af36e659bccc9f0cc",
+  "contract_address": "0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48",
+  "studio_url": "https://studio.genlayer.com/?import-contract=0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48",
+  "explorer_url": "https://explorer-studio.genlayer.com/address/0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48",
+  "deployment_tx_hash": "0xa638860a035866b2c2d3595f5e4f23bdcb4bc38410a0426cfa5effacab2bab66",
   "creator_address": "0x5B3661C576c7001e6d6279C67F3779705d334c89",
-  "creation_timestamp": "2026-10-08T14:12:11.920966+00:00",
+  "creation_timestamp": "2026-10-09T15:54:45+00:00",
   "receipt": {
     "status_name": "FINALIZED",
     "status_code": 7,
     "result_code": 6,
     "leader_execution_result": "SUCCESS",
     "consensus_votes": {
-      "agree": 5,
-      "idle": 0
+      "agree": 3,
+      "idle": 2
     },
-    "note": "All five StudioNet validators agreed. Leader and every agreeing validator returned execution_result SUCCESS.",
+    "note": "Leader plus three validating nodes returned execution_result SUCCESS; the two idle validators were cancelled after quorum (error_code CONSENSUS_VALIDATOR_QUORUM_REACHED).",
     "validator_addresses": {
       "agree": [
-        "0x36728d2a123aB444E603EE5b2ad17d18Bb193557",
-        "0x3E5ee2507cc167C9925Bf10c67D7986581112024",
-        "0x4404Fb70d490c935758146f42A73DC850FF95C71",
-        "0xE6BD8050758CB15fC88387223E31Ae2708B119dC",
-        "0xec2Fb79cd12255Eb34886CEd7332f27B98DEe658"
+        "0x14402D49f317CE1a2F35BAE01b1804A2A9703dCb",
+        "0x4aba638Cf0Cf5249437AaD968fC69dde46ae6BAC",
+        "0xBBb165E4c9d73a1493D363280f7067Cd07891dBE"
+      ],
+      "idle": [
+        "0x3D83ab507785b95ca5C208bEc80CCe3D5ca98100",
+        "0x3E5ee2507cc167C9925Bf10c67D7986581112024"
       ]
     }
   },
@@ -55,13 +58,21 @@
       "update_liabilities"
     ]
   },
-  "state": "DEPLOYED AND EXERCISED - real register/bond/file/audit lifecycle completed; see lifecycle.json",
+  "state": "DEPLOYED AND EXERCISED - source verified byte-identical; real lifecycle completed on this address (register, bond 2 GEN, file with uri:/sha256: evidence anchors, audit_claim consensus 3 agree / 0 idle, claim paid 500); see lifecycle.json",
   "superseded_deployments": [
+    {
+      "contract_version": "v1",
+      "contract_address": "0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF",
+      "deployment_tx_hash": "0x8adc2d7f0ee14f96d1702f6b953a424356ca016fcaaed50af36e659bccc9f0cc",
+      "creation_timestamp": "2026-10-08T14:12:11.920966+00:00",
+      "source_sha256": "f45dde8c180931b25e0ce96d21882f6ee7c8c10f15d3d464f4d099316d2393b8",
+      "note": "v1 contract (506 lines), 5 agree / 0 idle on deploy. Carried the real lifecycle recorded in lifecycle.json. Superseded: its intake predates evidence-anchor authentication and bound claim terms."
+    },
     {
       "contract_address": "0xEc80b9C592282aF5cc0eC0aeC3b7cdfD03CE0E75",
       "deployment_tx_hash": "0xda146f423eba6e5f953e460f70a69041cb971a24970dd5e5c2b3cdc675f0f216",
       "creation_timestamp": "2026-10-08T05:18:55.794027+00:00",
-      "note": "Earlier deployment of the same byte-identical source; superseded by the manual Studio deployment above."
+      "note": "Earlier deployment of the same byte-identical source; superseded by the manual Studio deployment."
     }
   ]
 }

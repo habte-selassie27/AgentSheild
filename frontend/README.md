@@ -38,7 +38,7 @@ lucide-react · clsx
 | `/disputes` | Frozen tiers + owner arbitration | `resolve_dispute`, `requeue_disputed` |
 | `/activity` | Append-only event log | events |
 
-Every page reads live on-chain state from the contract `0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF`
+Every page reads live on-chain state from the contract `0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48`
 on StudioNet — there are no mock values. Connect a wallet to send real transactions.
 
 ## Structure

@@ -5,7 +5,7 @@
  * Reads call the contract's view methods over the StudioNet RPC.
  * Writes are signed by the injected wallet (MetaMask + GenLayer snap).
  */
-import { client, CONTRACT } from './genlayer';
+import { client, CONTRACT, CHAIN_PARAMS } from './genlayer';
 import type { Agent, AgentStatus, Claim, ClaimStatus, Decision, Dispute, Gen, Severity } from './types';
 
 const ADDR = CONTRACT;
@@ -233,6 +233,25 @@ export function shortAddr(addr: string): string {
 
 /* ------------------------------------------------------------------ writes */
 
+/**
+ * genlayer-js skips its chain check for studio chains, so MetaMask happily
+ * signs on whatever network is selected and the consensus contract then
+ * rejects with `chainId should be same as current chainId`. Force StudioNet
+ * before every write.
+ */
+async function ensureChain(): Promise<void> {
+  const eth = window.ethereum;
+  if (!eth) return;
+  const current = await eth.request({ method: 'eth_chainId' });
+  if (current === CHAIN_PARAMS.chainId) return;
+  try {
+    await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_PARAMS.chainId }] });
+  } catch {
+    // 4902 = chain unknown to the wallet → add it, then switch.
+    await eth.request({ method: 'wallet_addEthereumChain', params: [CHAIN_PARAMS] });
+  }
+}
+
 /** Send a real transaction through the connected wallet. Returns the tx hash. */
 export async function write(
   functionName: string,
@@ -240,9 +259,10 @@ export async function write(
   value: Gen = 0n,
   account?: string | null,
 ): Promise<string> {
+  await ensureChain();
   const hash = await client.writeContract({
-    /* genlayer-js routes signing through window.ethereum when account is an address */
-    account: (account ?? undefined) as never,
+    /* genlayer-js reads `.address` off a viem Account — a bare string yields `undefined`. */
+    account: (account ? { address: account, type: 'json-rpc' } : undefined) as never,
     address: ADDR,
     functionName,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

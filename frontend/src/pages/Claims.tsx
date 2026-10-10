@@ -20,15 +20,61 @@ function evidenceAnchorsOk(evidence: string): boolean {
   return URI_RE.test(evidence) && SHA_RE.test(evidence);
 }
 
+const DRAFT_KEY = 'agentsheild.claimDraft.v1';
+
+interface ClaimDraft {
+  agentId?: number;
+  title?: string;
+  description?: string;
+  evidence?: string;
+  impact?: string;
+  severity?: Severity;
+}
+
+/** Draft survives page reloads so a failed/abandoned filing isn't lost. */
+function loadDraft(): ClaimDraft {
+  try {
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) ?? '{}') as ClaimDraft;
+  } catch {
+    return {};
+  }
+}
+
+function saveDraft(d: ClaimDraft): void {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+  } catch {
+    /* private mode / quota — draft is best-effort */
+  }
+}
+
+function clearDraft(): void {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
   const s = useShield();
   const activeAgents = useMemo(() => s.agents.filter((a) => a.status === 'active'), [s.agents]);
-  const [agentId, setAgentId] = useState(activeAgents[0]?.id ?? 1);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [evidence, setEvidence] = useState('');
-  const [impact, setImpact] = useState('');
-  const [severity, setSeverity] = useState<Severity>('high');
+  const [draft] = useState<ClaimDraft>(loadDraft);
+  const [agentId, setAgentId] = useState<number>(draft.agentId ?? activeAgents[0]?.id ?? 1);
+  const [title, setTitle] = useState(draft.title ?? '');
+  const [description, setDescription] = useState(draft.description ?? '');
+  const [evidence, setEvidence] = useState(draft.evidence ?? '');
+  const [impact, setImpact] = useState(draft.impact ?? '');
+  const [severity, setSeverity] = useState<Severity>(draft.severity ?? 'high');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Persist every keystroke so a reload (or a failed tx) keeps the draft.
+  useEffect(() => {
+    const empty = !title.trim() && !description.trim() && !evidence.trim() && !impact.trim();
+    if (empty) clearDraft();
+    else saveDraft({ agentId, title, description, evidence, impact, severity });
+  }, [agentId, title, description, evidence, impact, severity]);
 
   useEffect(() => {
     if (!open) return;
@@ -50,9 +96,11 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
   const evidenceOk = evidence.trim().length >= MIN_EVIDENCE && evidenceAnchorsOk(evidence);
   const canSubmit = !!s.account && !!activeAgents.length && titleOk && descOk && evidenceOk;
 
-  const submit = () => {
-    if (!canSubmit) return;
-    s.fileClaim({
+  const submit = async () => {
+    if (!canSubmit || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    const ok = await s.fileClaim({
       agentId,
       title: title.trim(),
       description: description.trim(),
@@ -60,7 +108,13 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
       impact: impact.trim() || 'impact statement pending audit',
       severity,
     });
+    setSubmitting(false);
+    if (!ok) {
+      setSubmitError('Transaction failed — see the notice strip at the top of the page for the reason. Your input is preserved.');
+      return;
+    }
     setTitle(''); setDescription(''); setEvidence(''); setImpact('');
+    clearDraft();
     onClose();
   };
 
@@ -138,10 +192,14 @@ function FileClaimModal({ open, onClose }: { open: boolean; onClose(): void }) {
           </div>
         </div>
 
+        {submitError && (
+          <p className="mt-3 text-[11.5px] text-warn">{submitError}</p>
+        )}
+
         <div className="mt-4 flex items-center gap-2 border-t border-edge pt-3.5">
           <p className="text-[11px] text-mute font-mono">title≥8 · desc≥20 · evidence anchors uri:/sha256: · active agent</p>
-          <button onClick={submit} disabled={!canSubmit} className="btn-primary ml-auto disabled:opacity-40">
-            File claim
+          <button onClick={submit} disabled={!canSubmit || submitting} className="btn-primary ml-auto disabled:opacity-40">
+            {submitting ? 'Signing…' : 'File claim'}
           </button>
         </div>
       </div>

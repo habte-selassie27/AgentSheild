@@ -6,8 +6,8 @@
  */
 import { createClient, chains } from 'genlayer-js';
 
-/** Official StudioNet deployment of contracts/AgentSheild.py (source byte-verified). */
-export const DEFAULT_CONTRACT = '0x8c354C2a60E53ea7DA4D2eBC658eec2f75531fbF';
+/** Official StudioNet deployment of contracts/AgentSheield.py (source byte-verified). */
+export const DEFAULT_CONTRACT = '0x9F9eBD0dD2fcd152EaEb30b80A2Bb1Cf7f961A48';
 
 const env = (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
 
@@ -27,6 +27,17 @@ export const NETWORK: NetworkInfo = {
   rpc: chains.studionet.rpcUrls.default.http[0],
   explorer: 'https://explorer-studio.genlayer.com',
   contract: CONTRACT,
+};
+
+/** wallet_addEthereumChain params — genlayer-js only switches, never adds, for studio chains. */
+export const CHAIN_PARAMS = {
+  chainId: `0x${chains.studionet.id.toString(16)}`,
+  chainName: chains.studionet.name,
+  rpcUrls: chains.studionet.rpcUrls.default.http,
+  nativeCurrency: chains.studionet.nativeCurrency,
+  blockExplorerUrls: chains.studionet.blockExplorers?.default.url
+    ? [chains.studionet.blockExplorers.default.url]
+    : undefined,
 };
 
 export const explorerAddress = (addr: string) => `${NETWORK.explorer}/address/${addr}`;

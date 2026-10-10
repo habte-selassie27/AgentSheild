@@ -54,7 +54,7 @@ interface ShieldState {
   setAgentStatus(agentId: number, status: AgentStatus): void;
   fileClaim(input: {
     agentId: number; title: string; description: string; evidence: string; impact: string; severity: Severity;
-  }): void;
+  }): Promise<boolean>;
   claimPayout(claimId: number): void;
   raiseDispute(claimId: number, reason: string): void;
   resolveDispute(disputeId: number, outcome: Decision, severity: Severity): void;
@@ -255,13 +255,11 @@ export function ShieldProvider({ children }: { children: React.ReactNode }) {
 
   const fileClaim = useCallback((input: {
     agentId: number; title: string; description: string; evidence: string; impact: string; severity: Severity;
-  }) => {
-    void applyWrite(
+  }) => applyWrite(
       `file_claim(agent #${input.agentId})`,
       (acc) => sdk.fileClaim(input, acc),
       (r) => r.claims.some((c) => c.title === input.title && c.agentId === input.agentId),
-    );
-  }, [applyWrite]);
+    ), [applyWrite]);
 
   const claimPayout = useCallback((claimId: number) => {
     void applyWrite(
